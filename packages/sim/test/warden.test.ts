@@ -22,10 +22,11 @@ import {
   skyMaxHp,
   skyRespawnTicks,
   skySpeed,
+  skySpeedRaw,
   TICK_DT,
   UNIT_QUEUES,
-  WARDEN_ALTITUDE,
   WEAPON_UNITS_PER_TICK,
+  WU_PER_METRE,
   wardenLevel,
 } from "../src/balance";
 import {
@@ -39,7 +40,9 @@ import {
 import { createTickInputs } from "../src/inputs";
 import { getMapById, LA_CANTINA_ID, sampleHeight } from "../src/map";
 import { claimOutpostSlot, createSim, hash, type SimState, spawnUnit, step } from "../src/sim";
+import { travelWu } from "../src/units";
 import {
+  SKY_CRASH,
   SKY_CRUISE,
   SKY_ENGAGE,
   SKY_MODE_ATTACK,
@@ -62,8 +65,12 @@ describe("the Warden is the Sky Captain", () => {
     const wid = sim.avatarId[1];
     expect(sim.ent.archetype[wid]).toBe(ARCHETYPE.WARDEN);
     expect(sim.ent.hp[wid]).toBe(skyMaxHp(4));
+    // At its anchor: the level's record's cruise altitude over the surface
+    // (Mp's records carry no spawn flag: no climb, no rise).
     const ground = sampleHeight(sim.map, sim.ent.posX[wid], sim.ent.posY[wid]);
-    expect(sim.ent.height[wid]).toBeGreaterThanOrEqual(ground + WARDEN_ALTITUDE - 0.001);
+    const f = sim.map.skyFlight[4];
+    expect(sim.ent.height[wid]).toBeCloseTo(ground + (f.altCruise << 4) / WU_PER_METRE, 4);
+    expect(sim.captain.fly).toBe(SKY_CRUISE);
     expect(sim.ent.archetype[sim.avatarId[0]]).toBe(ARCHETYPE.AVATAR);
     const plain = createSim(LC, 1);
     expect(plain.wardenPlayer).toBe(-1);
@@ -95,7 +102,9 @@ describe("the Warden is the Sky Captain", () => {
       expect(Math.abs(skySpeed(l) - speed[l])).toBeLessThan(0.006); // the table rounds
       expect(skyRespawnTicks(l) / 30).toBeCloseTo(respawn[l], 5);
     }
-    // And it flies at that speed.
+    // And it flies at that speed: level, `speed * delta >> 8` wu a tick (its
+    // speed word, skySpeedRaw); banked or pitched, less (aircraft.c 0x00420b84).
+    expect(travelWu(skySpeedRaw(9), 0x10000) / WU_PER_METRE).toBeCloseTo(skySpeed(9) * TICK_DT, 3);
     const sim = wardenSim(10, 1, LA_CANTINA_ID);
     const wid = sim.avatarId[1];
     step(sim, idle);
@@ -103,7 +112,8 @@ describe("the Warden is the Sky Captain", () => {
     const y = sim.ent.posY[wid];
     step(sim, idle);
     const d = Math.hypot(sim.ent.posX[wid] - x, sim.ent.posY[wid] - y);
-    expect(d).toBeCloseTo(skySpeed(9) * TICK_DT, 4);
+    expect(d).toBeLessThanOrEqual(skySpeed(9) * TICK_DT + 0.001);
+    expect(d).toBeGreaterThan(skySpeed(9) * TICK_DT * 0.5);
   });
 
   it("is deterministic, and the level changes the match", () => {
@@ -125,15 +135,26 @@ describe("the Warden is the Sky Captain", () => {
     expect(diverged).toBe(true);
   });
 
-  it("starts its budget at 0, and its fall pays the enemy 10 at once", () => {
+  it("starts its budget at 0, and its fall pays the enemy 10 where its crash lands", () => {
     // A one-viewport game starts the captain's Current Points at zero
     // (0x004214fc); the player starts on 10 (R2).
     const sim = wardenSim(1);
     expect(sim.points[1]).toBe(0);
     expect(sim.points[0]).toBe(STARTING_POINTS);
     sim.points[1] = 25;
-    sim.ent.hp[sim.avatarId[1]] = -10;
+    const wid = sim.avatarId[1];
+    // Away from home: within 2 m of it the tick's damaged arm restores it
+    // (0x00421632), crash or not.
+    sim.ent.posY[wid] += 12;
+    sim.ent.hp[wid] = -10;
+    // No decision pass while it falls (it would spend: it does tick on).
+    sim.captain.think = 1e9;
     step(sim, idle);
+    // Down, it tumbles (A19; aircraft_op4 0x00420296) and pays nothing yet.
+    expect(sim.avatarId[1]).toBe(wid);
+    expect(sim.captain.fly).toBe(SKY_CRASH);
+    expect(sim.points[0]).toBe(STARTING_POINTS);
+    for (let t = 0; t < 600 && sim.avatarId[1] >= 0; t++) step(sim, idle);
     expect(sim.avatarId[1]).toBe(-1);
     expect(sim.points[0]).toBe(STARTING_POINTS + POINTS_AVATAR_DOWN);
     expect(sim.points[1]).toBe(25 - POINTS_AVATAR_DOWN);
@@ -148,8 +169,10 @@ describe("the Warden is the Sky Captain", () => {
       sim.ent.hp[sim.baseTurretEntity[k]] = 0;
     }
     step(sim, idle);
+    sim.ent.posY[sim.avatarId[1]] += 12; // away from home, which would restore it
     sim.ent.hp[sim.avatarId[1]] = -10;
-    step(sim, idle);
+    // The countdown starts where its crash lands (0x00420d90).
+    for (let t = 0; t < 600 && sim.avatarId[1] >= 0; t++) step(sim, idle);
     const ticks = skyRespawnTicks(4);
     expect(ticks).toBe(150);
     expect(sim.respawnTimer[1]).toBe(ticks - 1);
@@ -356,19 +379,20 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
     step(sim, idle);
     const cruise = sim.captain.speed;
     // 15 m out from home, heading home: it flies its heading and turns toward
-    // what it steers at (units.ts steerHeading), so a craft facing away would
+    // what it steers at (units.ts aircraftFly), so a craft facing away would
     // first run on and divert to a pickup nearer than home.
     const home = LC.spawns[1];
     sim.ent.posX[wid] = home.x;
     sim.ent.posY[wid] = home.y + 15;
-    sim.ent.velX[wid] = 0;
-    sim.ent.velY[wid] = -cruise;
+    sim.air.hx[wid] = 0;
+    sim.air.hy[wid] = 0;
+    sim.air.hz[wid] = -0x10000;
     sim.ent.hp[wid] = 50; // well below a quarter (defend halves the ~half threshold)
     step(sim, idle);
     expect(sim.captain.fly).toBe(SKY_CRUISE);
     expect(sim.captain.aim).toBe(-1);
     // Level 7: speed += speed >> (4 - 7 / 4) = an eighth.
-    expect(sim.captain.speed).toBeCloseTo(cruise * 1.125, 6);
+    expect(sim.captain.speed).toBe(cruise + (cruise >> 3));
     expect(sim.captain.destX).toBeCloseTo(home.x, 5);
     expect(sim.captain.destY).toBeCloseTo(home.y, 5);
     let restoredAt = -1;
@@ -377,7 +401,7 @@ describe("the captain's mode machine (fcop-re/ai-and-rules.md §1.5)", () => {
       if (sim.ent.hp[wid] === skyMaxHp(7)) restoredAt = t;
     }
     expect(restoredAt).toBeGreaterThan(0);
-    expect(sim.captain.speed).toBeCloseTo(cruise, 6);
+    expect(sim.captain.speed).toBe(cruise);
     expect(sim.captain.turn).toBe(SKY_TURN_RATE); // the boost home is undone too
   });
 });

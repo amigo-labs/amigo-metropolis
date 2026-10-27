@@ -5,7 +5,6 @@
 import { describe, expect, it } from "bun:test";
 import { ARCHETYPE } from "../src/archetypes";
 import {
-  AIR_ALTITUDE,
   ARCHETYPE_MAX_HP,
   AVATAR_HP,
   BASE_TURRET_RESPAWN_TICKS,
@@ -20,10 +19,11 @@ import {
   RUNNER_ALIVE_LIMIT,
   STARTING_POINTS,
   UNIT_SEPARATION_RADIUS,
+  WU_PER_METRE,
 } from "../src/balance";
 import { EV_BREACH, EV_PURCHASE, EV_PURCHASE_REFUSED, EVENT_STRIDE } from "../src/events";
 import { BTN_ACTION, BTN_FORWARD, BTN_HEAVY, createTickInputs } from "../src/inputs";
-import { loadMapFromJson, type MapJson } from "../src/map";
+import { loadMapFromJson, type MapJson, sampleHeight } from "../src/map";
 import {
   createSim,
   hash,
@@ -165,17 +165,39 @@ describe("base structures", () => {
     expect(sim.ent.hp[back]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
   });
 
-  it("owned turrets never fight each other, even in mutual range", () => {
+  it("owned turrets of the two sides fight each other in mutual range (the original's search by team, U4)", () => {
     reset();
-    // Both rings authored 8 m apart mid-map — well inside a turret's 12 m.
+    // Both rings authored 8 m apart mid-map — well inside a turret's 12 m. A
+    // team turret searches by team (`target_type` 4) and nothing in that search
+    // looks at a type, so each finds the other.
     const sim = createSim(loadMapFromJson(warzone({ west: [[26, 30]], east: [[34, 30]] })), 42);
     const w = sim.baseTurretEntity[0];
     const e = sim.baseTurretEntity[1];
     for (let t = 0; t < 300; t++) step(sim, inputs);
-    expect(sim.ent.alive[w]).toBe(1);
-    expect(sim.ent.alive[e]).toBe(1);
-    expect(sim.ent.hp[w]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
-    expect(sim.ent.hp[e]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+    expect(sim.ent.hp[w]).toBeLessThan(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+    expect(sim.ent.hp[e]).toBeLessThan(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+  });
+
+  it("owned turrets of one side never fight each other", () => {
+    reset();
+    const sim = createSim(
+      loadMapFromJson(
+        warzone({
+          west: [
+            [26, 30],
+            [30, 30],
+          ],
+          east: [],
+        }),
+      ),
+      42,
+    );
+    for (let t = 0; t < 300; t++) step(sim, inputs);
+    for (let id = 0; id < sim.ent.high; id++) {
+      if (sim.ent.alive[id] && sim.ent.archetype[id] === ARCHETYPE.TURRET) {
+        expect(sim.ent.hp[id]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.TURRET]);
+      }
+    }
   });
 
   it("nothing at a base repairs a damaged avatar (the original has no pad)", () => {
@@ -275,6 +297,8 @@ describe("console purchases (one unit per press, rules.md §3)", () => {
     const sim = openSim();
     sim.points[0] = 100;
     for (let k = 0; k < RUNNER_ALIVE_LIMIT - 1; k++) spawnUnit(sim, ARCHETYPE.RUNNER, 0, 6, 40);
+    // Nineteen bought (state word 27): the count word is what the shop reads.
+    sim.unitCount[0] = RUNNER_ALIVE_LIMIT - 1;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
     press(sim, BTN_ACTION); // the 20th: queued
@@ -496,7 +520,13 @@ describe("guardian behavior (the original's aircraft on every arena, SIM_VERSION
       expect(Math.abs(sim.ent.posX[id] - 6)).toBeLessThan(GUARDIAN_LEASH_X + 2);
       expect(Math.abs(sim.ent.posY[id] - 22)).toBeLessThan(GUARDIAN_LEASH_Y + 2);
     }
-    expect(sim.ent.height[id]).toBe(AIR_ALTITUDE); // flat map: flies at altitude
+    // At altitude: the controller's band over its floor, the ground (no coarse
+    // envelope on this map) plus the model's half height (aircraft.c 0x00420a31).
+    const f = sim.map.bases[0].jetFlight;
+    const g = sampleHeight(sim.map, sim.ent.posX[id], sim.ent.posY[id]);
+    const floor = Math.max(g, sim.map.waterLevel) + (f.halfY << 4) / WU_PER_METRE;
+    expect(sim.ent.height[id]).toBeGreaterThan(floor + ((f.altMin << 4) - 0x400) / WU_PER_METRE);
+    expect(sim.ent.height[id]).toBeLessThan(floor + ((f.altMax << 4) + 0x400) / WU_PER_METRE);
   });
 
   it("patrol intercepts an intruder near the base", () => {

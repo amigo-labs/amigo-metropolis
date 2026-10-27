@@ -5,8 +5,9 @@
 // followers (fcop-fidelity.md U1/U2; fcop-re/ai-and-rules.md §4): at every node
 // the step chooser picks one of up to four links — a Runner seeking the nearest
 // enemy within 16 m on 60 % of steps, at random otherwise; a Juggernaut always
-// at random — never stepping straight back; they walk the legs at 1.98 m/s, slow
-// for traffic in 1 s holds and never stop to fight (their guns fire on the move).
+// at random — never stepping straight back; they walk the legs at 1.98 m/s,
+// choosing a leg ahead and rounding the corners, slow for traffic in 1 s holds
+// and never stop to fight (their guns fire on the move). The cursor is route.ts.
 // Elsewhere they follow Metropolis' authored lane polylines toward the enemy
 // gate and halt for anything hostile in attack range (rules.md §4). Guardians
 // and Fortresses are the original's aircraft on the imported arenas (search,
@@ -15,75 +16,77 @@
 // Per-archetype field reuse on unit entities (see entities.ts):
 //   timerA    — ground: lane index, or on the graph the node it walks to (-1 halted)
 //               · air: patrol orbit angle (radians)
-//   timerB    — ground: current waypoint index (past either end = seek gate), or
-//               on the graph the traffic hold in ticks (0 = none)
+//   timerB    — ground off the graph: current waypoint index (past either end =
+//               seek gate)
 //   cooldownB — ground on the graph: the node it came from (-1 none)
 //   ammoB     — ground on the graph: the node before that, + 1 (0 = none)
-//   aimX      — ground on the graph: the commanded speed, m/s
+//   (the rest of a route follower's state is its cursor, SimState.route: route.ts)
 //   mode      — GUARDIAN: UNIT_MODE_PATROL | UNIT_MODE_ASSAULT (spawn-site switch);
 //               on a PA arena the aircraft's anchor (0 base, 1 + k outpost k)
 //   (a PA aircraft's own reuse is listed at moveAircraft)
 
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
-  AIR_ALTITUDE,
   AIRCRAFT_CRUISE_DWELL_MIN,
   AIRCRAFT_CRUISE_JITTER,
   AIRCRAFT_DELTA_UNITS,
   AIRCRAFT_DWELL_JITTER,
   AIRCRAFT_HEADING_ONE,
+  AIRCRAFT_PITCH_LIMIT,
   AIRCRAFT_REVERSE_JITTER,
   AIRCRAFT_REVERSE_UNITS,
   AIRCRAFT_SEARCH_JITTER,
   AIRCRAFT_SEARCH_UNITS,
+  AIRCRAFT_SPAWN_CLIMB,
+  AIRCRAFT_SPAWN_HIGH,
+  AIRCRAFT_SPAWN_HIGH_RISE,
   AIRCRAFT_STANDOFF,
   AIRCRAFT_STEP_BITS,
+  AIRCRAFT_TUMBLE_SPAN,
   AIRCRAFT_TURN_RATE,
+  AIRCRAFT_UP_BIAS,
+  AIRCRAFT_VERT_DEADBAND,
+  AIRCRAFT_VERT_MAX,
+  type AircraftFlight,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
-  FORTRESS_AIRCRAFT_SPEED,
+  FORTRESS_AIRCRAFT_SPEED_RAW,
   FORTRESS_DETECT_RANGE,
   FORTRESS_DWELL_CRUISE,
   FORTRESS_DWELL_ENGAGE,
   FORTRESS_LEASH_X,
   FORTRESS_LEASH_Y,
   FRAME_CLOCK_PER_TICK,
-  GUARDIAN_AIRCRAFT_SPEED,
+  GUARDIAN_AIRCRAFT_SPEED_RAW,
   GUARDIAN_DETECT_RANGE,
   GUARDIAN_DWELL_CRUISE,
   GUARDIAN_DWELL_ENGAGE,
   GUARDIAN_LEASH_X,
   GUARDIAN_LEASH_Y,
   HOVER_CUSHION_SPAN,
-  ROUTE_CONE_COS,
-  ROUTE_HOLD_TICKS,
-  ROUTE_NEAR_BLOCK,
-  ROUTE_NEAR_GAP,
-  ROUTE_NEAR_MIN_LEN,
-  ROUTE_NEAR_RISE,
-  ROUTE_NODE_UNITS,
-  ROUTE_SCORE_NO_LINK,
-  ROUTE_SCORE_PREV,
-  ROUTE_SCORE_PREV2,
-  ROUTE_SEEK_RANGE,
+  MAX_ENTITIES,
   ROUTE_SPEED_UNIT,
   ROUTE_TOP_SPEED,
-  ROUTE_WANDER,
   TARGET_PRIORITY_AVATAR,
   TARGET_PRIORITY_JUGGERNAUT,
   TARGET_PRIORITY_RUNNER,
   TICK_DT,
+  TICK_HZ,
   UNIT_SEPARATION_PUSH,
   UNIT_SEPARATION_RADIUS,
   WAYPOINT_RADIUS,
   WU_PER_METRE,
+  wardenLevel,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
-import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
+import { coarseHeightAt, type MapData, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
+import { followsRoutes, routeContacts, routeTick, routeTraffic } from "./route";
 import { ANIM_MOVING, entityRadius, rideHeight, type SimState, STEP_SNAP } from "./sim";
-import { atan2Poly, cosLUT, rand01, randInt, sinLUT } from "./simMath";
+import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
 import { animStep, T_MODE } from "./walker";
+
+export { followsRoutes };
 
 /**
  * An aircraft's anchor, the spawner it was built at (moveAircraft): 0 the base
@@ -97,9 +100,11 @@ export const UNIT_MODE_OUTPOST = 1;
  * Nearest live enemy of `id` within `range` (dense id order; ties keep the
  * lowest id). Neutral entities are never engaged by units, and projectiles
  * are never targets. Shared by unit movement AND the targeting system so
- * "halts the unit" and "gets shot" agree exactly. Turret callers pass
- * `skipStructures` — turrets only ever fire at mobile targets, never at
- * turrets or consoles — while units DO engage structures in their path.
+ * "halts the unit" and "gets shot" agree exactly. Turrets, units and the
+ * Dreadnought's guns all engage the other side's turrets (the original's
+ * search by team has no type test, fcop-fidelity.md U4); `skipStructures`
+ * leaves them out for a caller that wants mobile bodies only (none since
+ * SIM_VERSION 107).
  */
 export function nearestEnemyInRange(
   state: SimState,
@@ -222,14 +227,14 @@ export function systemUnitMovement(state: SimState): void {
     if (!ent.alive[id]) continue;
     switch (ent.archetype[id]) {
       case ARCHETYPE.RUNNER:
-        if (routes) moveRouteFollower(state, id);
+        if (routes) routeTick(state, id);
         else moveGroundUnit(state, id, ROUTE_TOP_SPEED);
         break;
       case ARCHETYPE.JUGGERNAUT:
         // The type-5 tick's order (type5.c 469-494): the hull's walk by the
         // speed the last move left, then the move.
         stepHullWalk(state, id);
-        if (routes) moveRouteFollower(state, id);
+        if (routes) routeTick(state, id);
         else moveGroundUnit(state, id, ROUTE_TOP_SPEED);
         break;
       case ARCHETYPE.GUARDIAN:
@@ -240,7 +245,18 @@ export function systemUnitMovement(state: SimState): void {
         break;
     }
   }
-  if (!routes) separateGroundUnits(state);
+  if (!routes) {
+    separateGroundUnits(state);
+    return;
+  }
+  // The frame's end on the graph, in the original's order: the pair walk's
+  // contacts (operation 0x0b, `objects_pick_targets` 0x0044fe40), then each
+  // actor's answer to its nearest neighbour (operation 0x0d,
+  // `cact_post_impulse` 0x0043bf00, the frame's last actor pass).
+  routeContacts(state);
+  for (let id = 0; id < ent.high; id++) {
+    if (ent.alive[id] && ent.archetype[id] === ARCHETYPE.RUNNER) routeTraffic(state, id);
+  }
 }
 
 /**
@@ -255,8 +271,11 @@ function stepHullWalk(state: SimState, id: number): void {
   const ent = state.ent;
   const walk = state.hullWalk[ent.team[id]];
   if (!walk) return;
+  // The speed word itself on the graph (route.ts); off it, read back from the velocity.
   const v = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
-  const speed = Math.floor(v / ROUTE_SPEED_UNIT + 0.5);
+  const speed = followsRoutes(state)
+    ? state.route.velocity[id]
+    : Math.floor(v / ROUTE_SPEED_UNIT + 0.5);
   const track = walk.tracks[walk.index[id]];
   const step = track[T_MODE] === 1 ? FRAME_CLOCK_PER_TICK : speed * FRAME_CLOCK_PER_TICK;
   animStep(walk, id, step, 0);
@@ -306,7 +325,9 @@ function insideLeash(state: SimState, id: number): boolean {
  * after the state switch).
  */
 export function aircraftEngaged(state: SimState, id: number): boolean {
-  return (state.ent.mode[id] & AIR_CRUISE) === 0;
+  // Not in the climb or the crash: the steering block, which steps the gun, is
+  // entered from ENGAGE and CRUISE only (0x00420867).
+  return (state.ent.mode[id] & AIR_CRUISE) === 0 && state.air.phase[id] === AIR_FLY;
 }
 
 /** The halfword the original keeps a state timer in (`mov word ptr [esi + 0x100]`). */
@@ -326,6 +347,9 @@ function dwellReload(state: SimState, dwell: number): number {
 
 /** A new patrol destination inside half the leash (`aircraft_pick_destination`). */
 function pickDestination(state: SimState, id: number): void {
+  // Nothing in the crash (0x00420680's first refusal).
+  const phase = state.air.phase[id];
+  if (phase === AIR_CRASH || phase === AIR_LANDED) return;
   const ent = state.ent;
   const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
   const lx = (fortress ? FORTRESS_LEASH_X : GUARDIAN_LEASH_X) * 0.5;
@@ -380,7 +404,7 @@ function aircraftSearch(state: SimState, id: number): number {
  * units:
  * - every 0x384 + rand 0..0x1ff units (3.0-4.7 s) it searches (aircraftSearch)
  *   and takes what it finds, or nothing; a target that dies is dropped and a
- *   new destination drawn;
+ *   new destination drawn — in every state, the climb and the crash included;
  * - ENGAGE and CRUISE each last their dwell (balance.ts GUARDIAN_/FORTRESS_
  *   DWELL_*: the jet 20 s / 5 s), an ENGAGE that runs out drawing a destination;
  * - in ENGAGE, out of its box — ±20 x ±24 m about its anchor for a jet, ±28 x
@@ -390,18 +414,23 @@ function aircraftSearch(state: SimState, id: number): number {
  *   fires only in ENGAGE;
  * - inside the 1 m standoff (by the octagonal estimate, 0x00458000) it
  *   reverses, and keeps reversing for 0.5-0.9 s;
- * - it turns as the original does (steerHeading, the record's turn 5120): it
- *   flies its heading and bends it toward the point, so it loops about what it
- *   attacks and circles its destination. It never halts.
+ * - it flies as the original does (aircraftFly): the heading turned toward the
+ *   point, its Y the altitude controller's, the bank's speed penalty;
+ * - a launch climb (spawn flag 4) rises straight up into ENGAGE (aircraftClimb);
+ *   shot down, 10 in 16 tumble to the ground first (aircraftCrash, sim.ts
+ *   systemDamageDeath) and die where they land.
  * Field reuse: timerA/timerB the destination, timerC the state timer (engine
  * units), cooldownB the search timer (engine units), ammoB the target + 1, aimX
  * the reverse timer (engine units), mode the anchor and AIR_CRUISE, velX/velY
- * the heading times the speed.
- * Not modelled: the altitude controller (AIR_ALTITUDE), the launch climb.
+ * the horizontal velocity; the heading, steer, tumble and phase are
+ * SimState.air's.
  */
 function moveAircraft(state: SimState, id: number): void {
   const ent = state.ent;
+  const air = state.air;
   const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
+  const phase = air.phase[id];
+  if (phase === AIR_LANDED) return; // down: systemDamageDeath takes it this tick
   // 0x00420752: the search, which replaces the target with what it finds.
   ent.cooldownB[id] -= AIRCRAFT_DELTA_UNITS;
   if (ent.cooldownB[id] < 0) {
@@ -418,6 +447,18 @@ function moveAircraft(state: SimState, id: number): void {
       pickDestination(state, id);
     }
   }
+  // 0x00420867: the climb and the crash leave the dwell and the steering alone.
+  if (phase === AIR_CLIMB) {
+    if (aircraftClimb(state, id, airSpeedRaw(state, id), aircraftFlight(state, id))) {
+      air.phase[id] = AIR_FLY;
+      ent.mode[id] &= AIR_ANCHOR_MASK; // out into ENGAGE
+    }
+    return;
+  }
+  if (phase === AIR_CRASH) {
+    if (aircraftTumble(state, id)) air.phase[id] = AIR_LANDED;
+    return;
+  }
   // 0x004207eb: the dwell.
   ent.timerC[id] -= AIRCRAFT_DELTA_UNITS;
   if (ent.timerC[id] < 0) {
@@ -430,7 +471,7 @@ function moveAircraft(state: SimState, id: number): void {
       ent.timerC[id] = dwellReload(state, fortress ? FORTRESS_DWELL_ENGAGE : GUARDIAN_DWELL_ENGAGE);
     }
   }
-  // 0x00420867: the state switch.
+  // The state switch.
   let tx = ent.timerA[id];
   let ty = ent.timerB[id];
   if ((ent.mode[id] & AIR_CRUISE) === 0) {
@@ -453,99 +494,541 @@ function moveAircraft(state: SimState, id: number): void {
   const dx = tx - ent.posX[id];
   const dy = ty - ent.posY[id];
   if (ent.aimX[id] > 0) ent.aimX[id] -= AIRCRAFT_DELTA_UNITS;
-  const ax = dx < 0 ? -dx : dx;
-  const ay = dy < 0 ? -dy : dy;
-  const octagonal = ax > ay ? ax + ay / 2 : ay + ax / 2;
   let reverse = false;
-  if (octagonal < AIRCRAFT_STANDOFF || ent.aimX[id] > 0) {
+  if (octagonal(dx, dy) < AIRCRAFT_STANDOFF || ent.aimX[id] > 0) {
     reverse = true;
     if (ent.aimX[id] <= 0) {
       ent.aimX[id] = AIRCRAFT_REVERSE_UNITS + randInt(state, AIRCRAFT_REVERSE_JITTER);
     }
   }
-  const speed = airSpeed(state, id);
-  // The original's turn (steerHeading) toward the steer point, reversed inside
-  // the standoff: it flies its heading, not straight at the point.
-  aircraftHeading(state, id);
-  steerHeading(
-    headingScratch.x,
-    headingScratch.y,
-    reverse ? -dx : dx,
-    reverse ? -dy : dy,
+  aircraftFly(
+    state,
+    id,
+    dx,
+    dy,
+    reverse,
     AIRCRAFT_TURN_RATE,
+    airSpeedRaw(state, id),
+    aircraftFlight(state, id),
   );
-  ent.velX[id] = headingScratch.x * speed;
-  ent.velY[id] = headingScratch.y * speed;
-  ent.yaw[id] = atan2Poly(headingScratch.y, headingScratch.x);
-  stepAndSnap(state, id, true);
 }
 
-/** Scratch for aircraftHeading / steerHeading (module scope, no allocation per tick). */
-export const headingScratch = { x: 0, y: 0 };
+/** The octagonal estimate `vec_distance_xz` (0x00458000) on the ground plane, metres. */
+export function octagonal(dx: number, dy: number): number {
+  const ax = dx < 0 ? -dx : dx;
+  const ay = dy < 0 ? -dy : dy;
+  return ax > ay ? ax + ay / 2 : ay + ax / 2;
+}
+
+// --- The flight (`aircraft_fly`, 0x00420977..0x00420c81) --------------------
+
+/** An aircraft's phase (SimState.air.phase): the original's states 4, 3 and 5 beside flight. */
+export const AIR_FLY = 0;
+export const AIR_CLIMB = 1;
+export const AIR_CRASH = 2;
+/** The tumble reached the ground this tick: the death is taken (state 5, then op 4). */
+export const AIR_LANDED = 3;
 
 /**
- * An aircraft's unit heading into headingScratch: the direction it flies (its
- * velocity), or its facing before it has flown.
+ * Every aircraft's flight state, by entity id, in the original's integers: the
+ * heading (+0x78/+0x7c/+0x80, 16.16 unit; x and z the sim's posX / posY, y up),
+ * the low-passed steering command (+0xe8), the crash velocity (`destination`,
+ * which operation 4 reuses), the up row's |Y| the last rotation left (the bank
+ * penalty's `m(1,1)`), and the phase. Jets, Fortresses and the Sky Captain.
+ * Hashed for every live one (sim.ts hash).
  */
-export function aircraftHeading(state: SimState, id: number): void {
+export interface AirState {
+  readonly hx: Int32Array;
+  readonly hy: Int32Array;
+  readonly hz: Int32Array;
+  readonly sx: Int32Array;
+  readonly sy: Int32Array;
+  readonly sz: Int32Array;
+  readonly vx: Int32Array;
+  readonly vy: Int32Array;
+  readonly vz: Int32Array;
+  readonly upY: Int32Array;
+  /**
+   * The model matrix's up row (row 1), 16.16, in the heading's axes: what
+   * `math_matrix_from_forward_up` (0x0043fbc0) last built, `forward x
+   * normalise(up x forward)`; the tumble's next up reference (0x00420ee3).
+   * `upY` is its |y|.
+   */
+  readonly ux: Int32Array;
+  readonly uy: Int32Array;
+  readonly uz: Int32Array;
+  readonly phase: Uint8Array;
+}
+
+export function createAirState(cap: number = MAX_ENTITIES): AirState {
+  return {
+    hx: new Int32Array(cap),
+    hy: new Int32Array(cap),
+    hz: new Int32Array(cap),
+    sx: new Int32Array(cap),
+    sy: new Int32Array(cap),
+    sz: new Int32Array(cap),
+    vx: new Int32Array(cap),
+    vy: new Int32Array(cap),
+    vz: new Int32Array(cap),
+    upY: new Int32Array(cap),
+    ux: new Int32Array(cap),
+    uy: new Int32Array(cap).fill(AIRCRAFT_HEADING_ONE),
+    uz: new Int32Array(cap),
+    phase: new Uint8Array(cap),
+  };
+}
+
+/** `math_fixed_mul`: the 16.16 product, floored (64-bit in the original, exact here). */
+function fixedMul(a: number, b: number): number {
+  return Math.floor((a * b) / 0x10000);
+}
+
+/** The aircraft's record flight block: its spawner's, or the captain's level's. */
+export function aircraftFlight(state: SimState, id: number): AircraftFlight {
   const ent = state.ent;
-  const vx = ent.velX[id];
-  const vy = ent.velY[id];
-  const l = Math.sqrt(vx * vx + vy * vy);
-  if (l > 1e-9) {
-    headingScratch.x = vx / l;
-    headingScratch.y = vy / l;
-  } else {
-    headingScratch.x = cosLUT(ent.yaw[id]);
-    headingScratch.y = sinLUT(ent.yaw[id]);
+  const team = ent.team[id];
+  const map = state.map;
+  if (ent.archetype[id] === ARCHETYPE.WARDEN) {
+    return map.skyFlight[wardenLevel(state.wardenDifficulty)];
   }
+  const base = map.bases[team === 1 ? 1 : 0];
+  if (ent.archetype[id] === ARCHETYPE.FORTRESS) return base.fortressFlight;
+  const m = ent.mode[id] & AIR_ANCHOR_MASK;
+  if (m >= UNIT_MODE_OUTPOST && m - UNIT_MODE_OUTPOST < map.outposts.length) {
+    return map.outposts[m - UNIT_MODE_OUTPOST].jetFlight[team === 1 ? 1 : 0];
+  }
+  return base.jetFlight;
 }
 
 /**
- * One frame of the original's aircraft turn (`aircraft_fly`, retail
- * 0x00420a0f..0x00420b84; balance.ts AIRCRAFT_TURN_RATE): the horizontal vector
- * (dx, dy) to the steer point, in world units, is shifted until its cheap
- * magnitude (`max + min / 4`, 0x00457b10) has AIRCRAFT_STEP_BITS bits
- * (`vec_rescale_15`, 0x00457f60) — a pure shift, so the step keeps the
- * direction and not the length — scaled 16.16 by `turn * delta >> 3`
- * (0x004584a0) and added to the unit heading (hx, hy) x 0x10000, which is then
- * normalised. Writes the new unit heading to headingScratch.
+ * The ground under (x, y) in world units as the flight reads it: the coarse
+ * maximum-height envelope (`cact_coarse_height_at` 0x00456180, its 0x8000
+ * off the field unchecked) where the arena imports it; Metropolis' own maps
+ * carry none, and read their heightfield or water, whichever is higher.
  */
-export function steerHeading(hx: number, hy: number, dx: number, dy: number, turn: number): void {
-  let ix = Math.floor(dx * WU_PER_METRE);
-  let iy = Math.floor(dy * WU_PER_METRE);
-  const ax = ix < 0 ? -ix : ix;
-  const ay = iy < 0 ? -iy : iy;
-  const mag = ax > ay ? ax + (ay >> 2) : ay + (ax >> 2);
-  const bits = topBit(mag);
+function envelopeWu(state: SimState, x: number, y: number): number {
+  const map = state.map;
+  if (map.coarse) return Math.floor(coarseHeightAt(map.coarse, x, y) * WU_PER_METRE);
+  const g = sampleHeight(map, x, y);
+  return Math.floor((g < map.waterLevel ? map.waterLevel : g) * WU_PER_METRE);
+}
+
+/** The floor the flight is clamped up to: the envelope plus the model's half height (0x00420a31). */
+function floorWu(state: SimState, x: number, y: number, f: AircraftFlight): number {
+  return envelopeWu(state, x, y) + (f.halfY << 4);
+}
+
+/** `math_reciprocal_span` of a band `<< 4` (0x0042060d): `0x80000000 / (band << 4 >> 1)`. */
+function gain(band: number): number {
+  const half = (band << 4) >> 1;
+  return half > 0 ? Math.floor(0x80000000 / half) : 0;
+}
+
+/**
+ * The vertical command for an altitude `y` over `floor`, wu (0x00420a60..
+ * 0x00420af2): ±0x1800 at and beyond the band's edges, between them the error
+ * to the cruise altitude times the half band's reciprocal, times 3/32, and 0
+ * within the 0x200 deadband.
+ */
+export function verticalCommand(y: number, floor: number, f: AircraftFlight): number {
+  const target = floor + (f.altCruise << 4);
+  let cmd: number;
+  if (y < target) {
+    if (y <= floor + (f.altMin << 4)) cmd = AIRCRAFT_VERT_MAX;
+    else cmd = Math.floor((fixedMul(target - y, gain(f.altCruise - f.altMin)) * 3) / 32);
+  } else if (y >= floor + (f.altMax << 4)) {
+    cmd = -AIRCRAFT_VERT_MAX;
+  } else {
+    cmd = Math.floor((fixedMul(target - y, gain(f.altMax - f.altCruise)) * 3) / 32);
+  }
+  return (cmd < 0 ? -cmd : cmd) <= AIRCRAFT_VERT_DEADBAND ? 0 : cmd;
+}
+
+/**
+ * The heading step's scratch (`flyHeading`), module scope: in, the heading and
+ * steer; out, the same updated.
+ */
+export const flyScratch = { hx: 0, hy: 0, hz: 0, sx: 0, sy: 0, sz: 0 };
+
+/** `vec_rescale_15` (0x00457f60) of the scratch vector: a pure shift to a 15-bit cheap magnitude. */
+function rescale15(v: { x: number; y: number; z: number }): void {
+  const ax = v.x < 0 ? -v.x : v.x;
+  const ay = v.y < 0 ? -v.y : v.y;
+  const az = v.z < 0 ? -v.z : v.z;
+  // `vec_magnitude` (0x00457b10): the largest plus a quarter of the other two.
+  let a = ax;
+  let b = ay;
+  let c = az;
+  if (a < b) {
+    const t = a;
+    a = b;
+    b = t;
+  }
+  if (a < c) {
+    const t = a;
+    a = c;
+    c = t;
+  }
+  const bits = topBit(a + ((b + c) >> 2));
   if (bits > AIRCRAFT_STEP_BITS) {
-    ix >>= bits - AIRCRAFT_STEP_BITS;
-    iy >>= bits - AIRCRAFT_STEP_BITS;
+    const s = bits - AIRCRAFT_STEP_BITS;
+    v.x >>= s;
+    v.y >>= s;
+    v.z >>= s;
   } else {
-    ix <<= AIRCRAFT_STEP_BITS - bits;
-    iy <<= AIRCRAFT_STEP_BITS - bits;
-  }
-  const scale = (turn * AIRCRAFT_DELTA_UNITS) >> 3;
-  const nx = hx * AIRCRAFT_HEADING_ONE + ((ix * scale) >> 16);
-  const ny = hy * AIRCRAFT_HEADING_ONE + ((iy * scale) >> 16);
-  const l = Math.sqrt(nx * nx + ny * ny);
-  if (l > 1e-9) {
-    headingScratch.x = nx / l;
-    headingScratch.y = ny / l;
-  } else {
-    headingScratch.x = hx;
-    headingScratch.y = hy;
+    const s = AIRCRAFT_STEP_BITS - bits;
+    v.x <<= s;
+    v.y <<= s;
+    v.z <<= s;
   }
 }
 
+const vecScratch = { x: 0, y: 0, z: 0 };
+
 /**
- * Starts a PA aircraft as the construct does (0x00420380): in CRUISE (the
- * records' state byte 1) on its cruise dwell, to a destination drawn inside its
- * box (0x00420607), searching on its first tick (the timer starts at -1).
+ * One tick of the original's heading (`aircraft_fly` 0x00420a0f..0x00420b84) on
+ * flyScratch: the horizontal vector (dx, dz) to the steer point, wu, rescaled
+ * to 15 bits, times `turn * delta >> 3` (16.16, 0x004584a0) is the step, whose Y
+ * is the vertical command `vcmd`; the steer low-passes the step (`acc = (3 acc
+ * + in) >> 2`, 0x00457fc0) and loses a quarter of its Y; the heading takes the
+ * step, loses an eighth of its Y (both rounded toward zero), is rescaled to 15
+ * bits, its Y clamped to ±0x8000, and normalised to 16.16 — here by Math.sqrt
+ * in place of the original's inverse-square-root table (DAT_004a2b58).
  */
-export function startAircraft(state: SimState, id: number): void {
+export function flyHeading(dx: number, dz: number, vcmd: number, turn: number): void {
+  const s = flyScratch;
+  const v = vecScratch;
+  v.x = dx;
+  v.y = 0;
+  v.z = dz;
+  rescale15(v);
+  const scale = (turn * AIRCRAFT_DELTA_UNITS) >> 3;
+  const px = fixedMul(v.x, scale);
+  const pz = fixedMul(v.z, scale);
+  const py = vcmd;
+  s.sx = (3 * s.sx + px) >> 2;
+  s.sy = (3 * s.sy + py) >> 2;
+  s.sz = (3 * s.sz + pz) >> 2;
+  s.sy -= (s.sy + ((s.sy >> 31) & 3)) >> 2;
+  let hy = s.hy + py;
+  hy -= (hy + ((hy >> 31) & 7)) >> 3;
+  v.x = s.hx + px;
+  v.y = hy;
+  v.z = s.hz + pz;
+  rescale15(v);
+  if (v.y < -AIRCRAFT_PITCH_LIMIT) v.y = -AIRCRAFT_PITCH_LIMIT;
+  else if (v.y > AIRCRAFT_PITCH_LIMIT) v.y = AIRCRAFT_PITCH_LIMIT;
+  const l = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  if (l > 0) {
+    s.hx = Math.floor((v.x * AIRCRAFT_HEADING_ONE) / l);
+    s.hy = Math.floor((v.y * AIRCRAFT_HEADING_ONE) / l);
+    s.hz = Math.floor((v.z * AIRCRAFT_HEADING_ONE) / l);
+  }
+}
+
+/** Scratch: the up row upRow last built (module scope, no allocation per tick). */
+export const upScratch = { x: 0, y: 0, z: 0 };
+
+/**
+ * Row 1 of the rotation `math_matrix_from_forward_up` (0x0043fbc0) builds from
+ * the heading (hx, hy, hz) and the up reference (ux, uy, uz), 16.16, into
+ * upScratch: `forward x normalise(up x forward)`, which for a unit forward is
+ * the up reference's part across the heading, normalised -- the bank of a turn
+ * and the pitch together. (0, 1.0, 0) for a degenerate up.
+ */
+export function upRow(
+  hx: number,
+  hy: number,
+  hz: number,
+  ux: number,
+  uy: number,
+  uz: number,
+): void {
+  const fx = hx / AIRCRAFT_HEADING_ONE;
+  const fy = hy / AIRCRAFT_HEADING_ONE;
+  const fz = hz / AIRCRAFT_HEADING_ONE;
+  const d = ux * fx + uy * fy + uz * fz;
+  const px = ux - fx * d;
+  const py = uy - fy * d;
+  const pz = uz - fz * d;
+  const l = Math.sqrt(px * px + py * py + pz * pz);
+  if (!(l > 0)) {
+    upScratch.x = 0;
+    upScratch.y = AIRCRAFT_HEADING_ONE;
+    upScratch.z = 0;
+    return;
+  }
+  upScratch.x = Math.floor((px * AIRCRAFT_HEADING_ONE) / l);
+  upScratch.y = Math.floor((py * AIRCRAFT_HEADING_ONE) / l);
+  upScratch.z = Math.floor((pz * AIRCRAFT_HEADING_ONE) / l);
+}
+
+/**
+ * The up row's |Y| of the rotation built from the heading and the up vector
+ * `steer + (0, 0x2000, 0)` (0x00420c61): upRow's y, made positive. 16.16.
+ */
+export function upRowY(
+  hx: number,
+  hy: number,
+  hz: number,
+  sx: number,
+  sy: number,
+  sz: number,
+): number {
+  upRow(hx, hy, hz, sx, sy + AIRCRAFT_UP_BIAS, sz);
+  const y = upScratch.y;
+  return y < 0 ? -y : y;
+}
+
+/** Stores aircraft `id`'s rotation's up row from upScratch, and its |y|. */
+function storeUp(air: AirState, id: number): void {
+  air.ux[id] = upScratch.x;
+  air.uy[id] = upScratch.y;
+  air.uz[id] = upScratch.z;
+  air.upY[id] = upScratch.y < 0 ? -upScratch.y : upScratch.y;
+}
+
+/** A level aircraft's up row (`math_matrix_from_forward`, 0x0043fc60): world up. */
+export function levelUp(air: AirState, id: number): void {
+  air.ux[id] = 0;
+  air.uy[id] = AIRCRAFT_HEADING_ONE;
+  air.uz[id] = 0;
+  air.upY[id] = AIRCRAFT_HEADING_ONE;
+}
+
+/**
+ * How far a tick carries an aircraft, wu (0x00420b84): `speed * delta >> 8`
+ * scaled by `0x200 - ((0x10000 - |m(1,1)|) * 2 * 15/16 >> 8)` over 0x200 — the
+ * bank's (and pitch's) speed penalty, `(0x200 - tilt) >> 9`.
+ */
+export function travelWu(speedRaw: number, upY: number): number {
+  let tilt = (AIRCRAFT_HEADING_ONE - upY) * 2;
+  tilt -= (tilt + ((tilt >> 31) & 0xf)) >> 4;
+  const factor = 0x200 - (tilt >> 8);
+  return (factor * ((speedRaw * AIRCRAFT_DELTA_UNITS) >> 8)) >> 9;
+}
+
+/**
+ * One tick of `aircraft_fly` for aircraft `id`, toward the point (dx, dy)
+ * metres away (reversed inside the standoff): the heading step (flyHeading)
+ * with the altitude controller's command (verticalCommand, the coarse floor
+ * sampled once, 0x00420a31), the travel with its bank penalty (travelWu) along
+ * the 3D heading, the clamp up to the floor (0x00420c25), and the rotation's up
+ * row for the next tick's penalty. Positions move in whole world units.
+ */
+export function aircraftFly(
+  state: SimState,
+  id: number,
+  dx: number,
+  dy: number,
+  reverse: boolean,
+  turn: number,
+  speedRaw: number,
+  f: AircraftFlight,
+): void {
+  const ent = state.ent;
+  const air = state.air;
+  let ix = Math.floor(dx * WU_PER_METRE);
+  let iz = Math.floor(dy * WU_PER_METRE);
+  if (reverse) {
+    ix = -ix;
+    iz = -iz;
+  }
+  const xw = Math.floor(ent.posX[id] * WU_PER_METRE);
+  const zw = Math.floor(ent.posY[id] * WU_PER_METRE);
+  const yw = Math.floor(ent.height[id] * WU_PER_METRE);
+  const floor = floorWu(state, ent.posX[id], ent.posY[id], f);
+  const s = flyScratch;
+  s.hx = air.hx[id];
+  s.hy = air.hy[id];
+  s.hz = air.hz[id];
+  s.sx = air.sx[id];
+  s.sy = air.sy[id];
+  s.sz = air.sz[id];
+  flyHeading(ix, iz, verticalCommand(yw, floor, f), turn);
+  const travel = travelWu(speedRaw, air.upY[id]);
+  const mx = fixedMul(travel, s.hx);
+  const mz = fixedMul(travel, s.hz);
+  let ny = yw + fixedMul(travel, s.hy);
+  if (ny < floor) ny = floor;
+  const extent = worldExtent(state.map) * WU_PER_METRE;
+  let nx = xw + mx;
+  let nz = zw + mz;
+  nx = nx < 0 ? 0 : nx > extent ? Math.floor(extent) : nx;
+  nz = nz < 0 ? 0 : nz > extent ? Math.floor(extent) : nz;
+  ent.posX[id] = nx / WU_PER_METRE;
+  ent.posY[id] = nz / WU_PER_METRE;
+  ent.height[id] = ny / WU_PER_METRE;
+  ent.velX[id] = ((nx - xw) * TICK_HZ) / WU_PER_METRE;
+  ent.velY[id] = ((nz - zw) * TICK_HZ) / WU_PER_METRE;
+  if (s.hx !== 0 || s.hz !== 0) ent.yaw[id] = atan2Poly(s.hz, s.hx);
+  ent.animState[id] = ANIM_MOVING;
+  air.hx[id] = s.hx;
+  air.hy[id] = s.hy;
+  air.hz[id] = s.hz;
+  air.sx[id] = s.sx;
+  air.sy[id] = s.sy;
+  air.sz[id] = s.sz;
+  // 0x00420c61..0x00420c81: the rotation from the heading and the steer's up.
+  upRow(s.hx, s.hy, s.hz, s.sx, s.sy + AIRCRAFT_UP_BIAS, s.sz);
+  storeUp(air, id);
+}
+
+/**
+ * The launch climb (state 4, 0x0042087f): straight up by `speed * delta >> 9`
+ * wu a tick, nothing horizontal, world up; true once the clearance over the
+ * envelope less the half height passes the cruise altitude (into ENGAGE).
+ */
+export function aircraftClimb(
+  state: SimState,
+  id: number,
+  speedRaw: number,
+  f: AircraftFlight,
+): boolean {
+  const ent = state.ent;
+  const yw = Math.floor(ent.height[id] * WU_PER_METRE) + ((speedRaw * AIRCRAFT_DELTA_UNITS) >> 9);
+  ent.height[id] = yw / WU_PER_METRE;
+  ent.velX[id] = 0;
+  ent.velY[id] = 0;
+  // 0x004208b9: the rotation from the heading and world up.
+  const air = state.air;
+  upRow(air.hx[id], air.hy[id], air.hz[id], 0, AIRCRAFT_HEADING_ONE, 0);
+  storeUp(air, id);
+  ent.animState[id] = ANIM_MOVING;
+  return yw - (f.halfY << 4) - envelopeWu(state, ent.posX[id], ent.posY[id]) > f.altCruise << 4;
+}
+
+/**
+ * Operation 4's crash (`aircraft_op4` 0x00420296..0x00420345): the heading
+ * times the speed frozen as the velocity (`vec3_scale`), three `(rand & 0xfff)
+ * - 0x800` as the tumble. The roll that spares 6 in 16 jets is the caller's.
+ */
+export function aircraftCrash(state: SimState, id: number, speedRaw: number): void {
+  const air = state.air;
+  air.vx[id] = fixedMul(air.hx[id], speedRaw);
+  air.vy[id] = fixedMul(air.hy[id], speedRaw);
+  air.vz[id] = fixedMul(air.hz[id], speedRaw);
+  air.sx[id] = randInt(state, AIRCRAFT_TUMBLE_SPAN) - (AIRCRAFT_TUMBLE_SPAN >> 1);
+  air.sy[id] = randInt(state, AIRCRAFT_TUMBLE_SPAN) - (AIRCRAFT_TUMBLE_SPAN >> 1);
+  air.sz[id] = randInt(state, AIRCRAFT_TUMBLE_SPAN) - (AIRCRAFT_TUMBLE_SPAN >> 1);
+}
+
+/** `vec_mac` (0x004585b0)'s factored product: `(v >> 2) * (scale >> 2) >> 12`, 32-bit. */
+function mac(v: number, scale: number): number {
+  return ((v >> 2) * (scale >> 2)) >> 12;
+}
+
+/**
+ * One tick of the tumble (state 3, 0x00420d5c; 0x00420e83..0x00420f28): while
+ * the aircraft is above the surface (`terrain_surface_at`, here the
+ * heightfield) by more than half its radius, the tumble loses 1/64 of the
+ * velocity, gains `(3 - (rand & 0xf)) << 9` of fall, and both integrate by
+ * `delta / 256`; the heading follows the velocity. True when it is down: the
+ * tick that finds it so moves nothing.
+ */
+export function aircraftTumble(state: SimState, id: number): boolean {
+  const ent = state.ent;
+  const air = state.air;
+  const yw = Math.floor(ent.height[id] * WU_PER_METRE);
+  const surface = Math.floor(sampleHeight(state.map, ent.posX[id], ent.posY[id]) * WU_PER_METRE);
+  const halfR = Math.floor(entityRadius(state, id) * WU_PER_METRE) >> 1;
+  if (!(yw > surface + halfR)) {
+    ent.velX[id] = 0;
+    ent.velY[id] = 0;
+    return true;
+  }
+  air.sx[id] += mac(air.vx[id], -0x400);
+  air.sy[id] += mac(air.vy[id], -0x400);
+  air.sz[id] += mac(air.vz[id], -0x400);
+  air.sy[id] += (3 - randInt(state, 16)) << 9;
+  const scale = AIRCRAFT_DELTA_UNITS << 8;
+  air.vx[id] += mac(air.sx[id], scale);
+  air.vy[id] += mac(air.sy[id], scale);
+  air.vz[id] += mac(air.sz[id], scale);
+  const xw = Math.floor(ent.posX[id] * WU_PER_METRE);
+  const zw = Math.floor(ent.posY[id] * WU_PER_METRE);
+  const extent = Math.floor(worldExtent(state.map) * WU_PER_METRE);
+  let nx = xw + mac(air.vx[id], scale);
+  let nz = zw + mac(air.vz[id], scale);
+  nx = nx < 0 ? 0 : nx > extent ? extent : nx;
+  nz = nz < 0 ? 0 : nz > extent ? extent : nz;
+  ent.posX[id] = nx / WU_PER_METRE;
+  ent.posY[id] = nz / WU_PER_METRE;
+  ent.height[id] = (yw + mac(air.vy[id], scale)) / WU_PER_METRE;
+  ent.velX[id] = ((nx - xw) * TICK_HZ) / WU_PER_METRE;
+  ent.velY[id] = ((nz - zw) * TICK_HZ) / WU_PER_METRE;
+  // 0x00420ee3: the heading is the velocity's direction.
+  const vx = air.vx[id];
+  const vy = air.vy[id];
+  const vz = air.vz[id];
+  const l = Math.sqrt(vx * vx + vy * vy + vz * vz);
+  if (l > 0) {
+    air.hx[id] = Math.floor((vx * AIRCRAFT_HEADING_ONE) / l);
+    air.hy[id] = Math.floor((vy * AIRCRAFT_HEADING_ONE) / l);
+    air.hz[id] = Math.floor((vz * AIRCRAFT_HEADING_ONE) / l);
+  }
+  if (vx !== 0 || vz !== 0) ent.yaw[id] = atan2Poly(vz, vx);
+  // 0x00420ee3..0x00420f28: the rotation from the heading and the last up row
+  // biased toward world up, so the tumble turns the body on from where it was.
+  upRow(air.hx[id], air.hy[id], air.hz[id], air.ux[id], air.uy[id] + AIRCRAFT_UP_BIAS, air.uz[id]);
+  storeUp(air, id);
+  return false;
+}
+
+/**
+ * The construct's placement and start (`aircraft_construct` 0x00420380) for a
+ * new aircraft at its spawner (x, y already set): `alt_cruise << 4` above the
+ * surface, or 0x20000 wu higher with spawn flag 2, or on the surface plus its
+ * half height in the launch climb with flag 4; level, a heading drawn from the
+ * whole turn (0x004205d1), the steer zeroed. Returns the surface it was placed
+ * over, metres.
+ */
+export function placeAircraft(
+  state: SimState,
+  id: number,
+  f: AircraftFlight,
+  ground: number,
+): boolean {
+  const ent = state.ent;
+  const air = state.air;
+  const gw = Math.floor(ground * WU_PER_METRE);
+  let climb = false;
+  let yw = gw + (f.altCruise << 4);
+  if ((f.spawn & AIRCRAFT_SPAWN_HIGH) !== 0) yw += AIRCRAFT_SPAWN_HIGH_RISE;
+  else if ((f.spawn & AIRCRAFT_SPAWN_CLIMB) !== 0) {
+    yw = gw + (f.halfY << 4);
+    climb = true;
+  }
+  ent.height[id] = yw / WU_PER_METRE;
+  air.sx[id] = 0;
+  air.sy[id] = 0;
+  air.sz[id] = 0;
+  air.vx[id] = 0;
+  air.vy[id] = 0;
+  air.vz[id] = 0;
+  const yaw = (randInt(state, 4096) / 4096) * TAU;
+  air.hx[id] = Math.floor(cosLUT(yaw) * AIRCRAFT_HEADING_ONE);
+  air.hy[id] = 0;
+  air.hz[id] = Math.floor(sinLUT(yaw) * AIRCRAFT_HEADING_ONE);
+  levelUp(air, id);
+  air.phase[id] = climb ? AIR_CLIMB : AIR_FLY;
+  ent.yaw[id] = yaw;
+  ent.velX[id] = 0;
+  ent.velY[id] = 0;
+  return climb;
+}
+
+/**
+ * Starts a PA aircraft as the construct does (0x00420380): placed by its
+ * record (placeAircraft), in CRUISE (the records' state byte 1) on its cruise
+ * dwell — or in the launch climb — to a destination drawn inside its box
+ * (0x00420607), searching on its first tick (the timer starts at -1).
+ */
+export function startAircraft(state: SimState, id: number, ground: number): void {
   const ent = state.ent;
   const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
+  placeAircraft(state, id, aircraftFlight(state, id), ground);
   ent.mode[id] |= AIR_CRUISE;
   ent.timerC[id] = fortress ? FORTRESS_DWELL_CRUISE : GUARDIAN_DWELL_CRUISE;
   pickDestination(state, id);
@@ -555,345 +1038,20 @@ export function startAircraft(state: SimState, id: number): void {
 }
 
 /**
- * An aircraft's level-flight speed: the original's records (jet 2048 raw = 4.0
- * m/s, Flying Fortress 2457 = 4.8 m/s; fcop-re/ai-and-rules.md §4), on every
- * arena since SIM_VERSION 52.
+ * An aircraft's speed word (`+0xf4`): its record's raw `<< 12` over 300 (the
+ * construct, 0x004204bc) — the jet's 2048 raw 27962, the Flying Fortress' 2457
+ * 33546 — which `aircraft_fly` turns into `speed * delta >> 8` wu a tick: 4.0 and
+ * 4.8 m/s level (fcop-re/ai-and-rules.md §4).
  */
-export function airSpeed(state: SimState, id: number): number {
+export function airSpeedRaw(state: SimState, id: number): number {
   return state.ent.archetype[id] === ARCHETYPE.FORTRESS
-    ? FORTRESS_AIRCRAFT_SPEED
-    : GUARDIAN_AIRCRAFT_SPEED;
-}
-
-/** True when ground units on this map follow the original's routes (rules.md §9). */
-export function followsRoutes(state: SimState): boolean {
-  return state.map.laneGraph !== undefined;
+    ? FORTRESS_AIRCRAFT_SPEED_RAW
+    : GUARDIAN_AIRCRAFT_SPEED_RAW;
 }
 
 /** floor(log2(v)) for a positive 32-bit integer, 0 for 0 (`math_top_bit`). */
 function topBit(v: number): number {
   return v <= 0 ? 0 : 31 - Math.clz32(v);
-}
-
-/**
- * The original's step chooser (`cnet_route_next`, retail 0x00440f70;
- * fcop-re/ai-and-rules.md §4): which neighbour of `from` the follower walks to
- * next. Returns the node, or -1 when every link is refused (the follower halts).
- *
- * - A Runner (the PA tank: SEEK_TEAM, wander 1638/4096, search 16 m) first rolls
- *   the wander: 40 % of steps are random. Otherwise it looks for the nearest
- *   enemy-team actor within ROUTE_SEEK_RANGE; none found makes the step random.
- *   The target is found afresh at every step (retail drops the held one).
- * - A Juggernaut (the Dreadnought: mode 0) always steps at random.
- * - Each of up to four links is scored: no link -4, the node just left -2
- *   (refused), the node before that -1 (the dead-end escape, eligible but below
- *   every real score). Seeking scores the dot product of the step with the
- *   direction to the target, in node units (1/32 m), by octave:
- *   32 + floor(log2 dot) for dot >= 0, 31 - floor(log2 -dot) below. Random
- *   scores a 16-bit draw. Then the occupancy: a positive score is shifted right
- *   once per follower already heading to that node.
- * - The pick walks the links from the fourth to the first, keeping the higher
- *   score; a tie is a coin flip.
- *
- * Every draw is the sim PRNG, in a fixed order, so every peer picks the same.
- * The original's script-closed node bit is not imported (no PA script toggles
- * a node the routes use is not established either), so -3 never occurs.
- */
-function chooseNext(state: SimState, id: number, from: number): number {
-  const ent = state.ent;
-  const g = state.map.laneGraph;
-  if (g === undefined || from < 0 || from >= g.nodes.length) return -1;
-  const prev = ent.cooldownB[id];
-  const prev2 = ent.ammoB[id] - 1;
-  const here = g.nodes[from];
-  const hx = Math.round(here.x * ROUTE_NODE_UNITS);
-  const hy = Math.round(here.y * ROUTE_NODE_UNITS);
-
-  // The roll and the target, before any candidate (retail's order).
-  let seek = -1;
-  if (ent.archetype[id] === ARCHETYPE.RUNNER) {
-    if (randInt(state, 4096) >= ROUTE_WANDER) seek = seekTarget(state, id);
-  }
-  // Retail's `>> 8` of a world position is a floor in node units.
-  const tx = seek >= 0 ? Math.floor(ent.posX[seek] * ROUTE_NODE_UNITS) : 0;
-  const ty = seek >= 0 ? Math.floor(ent.posY[seek] * ROUTE_NODE_UNITS) : 0;
-
-  for (let s = 0; s < 4; s++) {
-    const link = g.edges[from * 4 + s];
-    let score: number;
-    if (link < 0) score = ROUTE_SCORE_NO_LINK;
-    else if (link === prev) score = ROUTE_SCORE_PREV;
-    else if (link === prev2) score = ROUTE_SCORE_PREV2;
-    else {
-      if (seek >= 0) {
-        const c = g.nodes[link];
-        const cx = Math.round(c.x * ROUTE_NODE_UNITS);
-        const cy = Math.round(c.y * ROUTE_NODE_UNITS);
-        const dot = (cx - hx) * (tx - hx) + (cy - hy) * (ty - hy);
-        score = dot >= 0 ? topBit(dot) + 0x20 : 0x1f - topBit(-dot);
-      } else {
-        score = randInt(state, 0x10000);
-      }
-      const crowd = occupancy(state, id, link);
-      if (crowd > 0 && score > 0) score = Math.floor(score / (1 << crowd));
-    }
-    routeScores[s] = score;
-  }
-  let best = ROUTE_SCORE_NO_LINK;
-  let chosen = -1;
-  for (let s = 3; s >= 0; s--) {
-    const score = routeScores[s];
-    if (score < ROUTE_SCORE_PREV2 || score < best) continue;
-    if (score === best && randInt(state, 2) !== 0) continue;
-    best = score;
-    chosen = s;
-  }
-  return chosen < 0 ? -1 : g.edges[from * 4 + chosen];
-}
-
-/** Per-candidate scores of the step chooser (module scratch, no allocation). */
-const routeScores = new Int32Array(4);
-
-/**
- * How many route followers on the same net are already heading to `node` (the
- * original's occupancy nibble, saturating at 15). Each team's units walk their
- * own net, so only the follower's own team counts.
- */
-function occupancy(state: SimState, id: number, node: number): number {
-  const ent = state.ent;
-  const team = ent.team[id];
-  let n = 0;
-  for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || t === id || ent.team[t] !== team) continue;
-    if (!isGroundUnit(ent.archetype[t]) || ent.timerA[t] !== node) continue;
-    if (++n === 15) break;
-  }
-  return n;
-}
-
-/**
- * The SEEK_TEAM search: the nearest live enemy-team actor within
- * ROUTE_SEEK_RANGE (horizontal), in dense id order (`cact_find_target`, mode
- * NEAREST, no cone, no line of sight). Projectiles and Metropolis' outpost
- * consoles are not actors of the original; a cloaked avatar is skipped as the
- * original's searches skip it (fcop-fidelity.md P7). -1 for none.
- */
-function seekTarget(state: SimState, id: number): number {
-  const ent = state.ent;
-  const team = ent.team[id];
-  const x = ent.posX[id];
-  const y = ent.posY[id];
-  let hidden0 = -1;
-  let hidden1 = -1;
-  if (state.buffInvis.length > 0) {
-    if (state.buffInvis[0] > 0) hidden0 = state.avatarId[0];
-    if (state.buffInvis[1] > 0) hidden1 = state.avatarId[1];
-  }
-  let best = -1;
-  let bestD2 = ROUTE_SEEK_RANGE * ROUTE_SEEK_RANGE;
-  for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || t === id || t === hidden0 || t === hidden1) continue;
-    const tt = ent.team[t];
-    if (tt === team || tt === TEAM_NEUTRAL) continue;
-    const a = ent.archetype[t];
-    if (a === ARCHETYPE.PROJECTILE || a === ARCHETYPE.CONSOLE) continue;
-    const dx = ent.posX[t] - x;
-    const dy = ent.posY[t] - y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      best = t;
-    }
-  }
-  return best;
-}
-
-/**
- * The original's answer to "something came close" (`cnet_route_near_actor`,
- * retail 0x004248f0; fcop-re/ai-and-rules.md §4): it decides how fast, never
- * where. The follower reacts to its single nearest neighbour (the pair test's)
- * whose gap — centre distance less both radii — is under ROUTE_NEAR_GAP, within
- * ROUTE_NEAR_RISE vertically and inside the ROUTE_CONE_COS cone ahead:
- * - another route follower: on the same net heading for the same node, the one
- *   with more of its leg left yields; for another node, it yields only if the
- *   other comes from where it is going (else its hold is released). Yielding
- *   is half the other's speed, capped at its own top, for ROUTE_HOLD_TICKS, and
- *   releases the other's hold (the deadlock breaker). The other net (the enemy
- *   team's) always yields.
- * - anything else: within ROUTE_NEAR_BLOCK dead ahead it stops; otherwise half
- *   its own speed plus a quarter of the top, for ROUTE_HOLD_TICKS.
- * The Juggernaut (the Dreadnought's route flag 0x8, CNET_ROUTE_NO_TRAFFIC)
- * does not react at all. Aircraft sit far outside the vertical band.
- */
-function routeTraffic(state: SimState, id: number, hx: number, hy: number): void {
-  const ent = state.ent;
-  const x = ent.posX[id];
-  const y = ent.posY[id];
-  const h = ent.height[id];
-  const r = entityRadius(state, id);
-  let near = -1;
-  let nearGap = ROUTE_NEAR_GAP;
-  for (let t = 0; t < ent.high; t++) {
-    if (!ent.alive[t] || t === id) continue;
-    const a = ent.archetype[t];
-    if (a === ARCHETYPE.PROJECTILE || a === ARCHETYPE.CONSOLE) continue;
-    const dz = ent.height[t] - h;
-    if (dz > ROUTE_NEAR_RISE || dz < -ROUTE_NEAR_RISE) continue;
-    const dx = ent.posX[t] - x;
-    const dy = ent.posY[t] - y;
-    const gap = Math.sqrt(dx * dx + dy * dy) - r - entityRadius(state, t);
-    if (gap < nearGap) {
-      nearGap = gap;
-      near = t;
-    }
-  }
-  if (near < 0) return;
-  const dx = ent.posX[near] - x;
-  const dy = ent.posY[near] - y;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len >= ROUTE_NEAR_MIN_LEN && (dx * hx + dy * hy) / len <= ROUTE_CONE_COS) return;
-
-  const top = ROUTE_TOP_SPEED;
-  if (isGroundUnit(ent.archetype[near]) && followsRoutes(state)) {
-    let yieldNow = true;
-    if (ent.team[near] === ent.team[id]) {
-      const node = ent.timerA[id];
-      if (ent.timerA[near] === node) {
-        yieldNow = legLeft(state, near) < legLeft(state, id);
-      } else if (ent.cooldownB[near] !== node) {
-        ent.timerB[id] = 1; // not in each other's way: release the hold
-        return;
-      }
-    }
-    if (!yieldNow) return;
-    const other = Math.sqrt(ent.velX[near] * ent.velX[near] + ent.velY[near] * ent.velY[near]);
-    ent.aimX[id] = Math.min(other * 0.5, top);
-    ent.timerB[id] = ROUTE_HOLD_TICKS;
-    if (ent.timerB[near] > 0 && ent.archetype[near] !== ARCHETYPE.JUGGERNAUT) ent.timerB[near] = 1;
-    return;
-  }
-  if (len < ROUTE_NEAR_BLOCK) {
-    ent.aimX[id] = 0;
-  } else {
-    const own = Math.sqrt(ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id]);
-    ent.aimX[id] = own * 0.5 + top * 0.25;
-  }
-  ent.timerB[id] = ROUTE_HOLD_TICKS;
-}
-
-/** Metres left of a follower's current leg (to its target node). */
-function legLeft(state: SimState, id: number): number {
-  const g = state.map.laneGraph;
-  const node = state.ent.timerA[id];
-  if (g === undefined || node < 0) return 0;
-  const dx = g.nodes[node].x - state.ent.posX[id];
-  const dy = g.nodes[node].y - state.ent.posY[id];
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-/**
- * A route follower's tick (`cnet_route_tick`, retail 0x004402a0): the hold
- * clock, the traffic reaction, then the walk. The walk is along the leg itself —
- * a leg is complete when the distance travelled reaches it, with no arrival
- * radius, and an overshoot carries into the next leg — so a follower is on the
- * original's road at every tick and neither walls nor a separation push move
- * it (the original's route followers collide with neither; the arena pipeline
- * opened every road's wall bits). Acceleration is the original's full speed in
- * one engine tick, so the commanded speed is the speed.
- *
- * Not modelled: the corner window's heading blend and inward cut (position on
- * the straight leg, heading snapped at the node), and the look-ahead (the
- * original chooses the next node when a leg starts; this chooses on arrival).
- */
-function moveRouteFollower(state: SimState, id: number): void {
-  const ent = state.ent;
-  const g = state.map.laneGraph;
-  if (g === undefined) return;
-
-  // The hold clock: when it runs out the commanded speed is the top again.
-  if (ent.timerB[id] > 0) {
-    ent.timerB[id] -= 1;
-    if (ent.timerB[id] <= 0) {
-      ent.timerB[id] = 0;
-      ent.aimX[id] = ROUTE_TOP_SPEED;
-    }
-  }
-
-  let node = ent.timerA[id];
-  if (node < 0) {
-    halt(ent, id);
-    snapUnitHeight(state, id, false);
-    return;
-  }
-  let nd = g.nodes[node];
-  let dx = nd.x - ent.posX[id];
-  let dy = nd.y - ent.posY[id];
-  let d = Math.sqrt(dx * dx + dy * dy);
-  let hx = d > 1e-6 ? dx / d : cosLUT(ent.yaw[id]);
-  let hy = d > 1e-6 ? dy / d : sinLUT(ent.yaw[id]);
-  if (ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) routeTraffic(state, id, hx, hy);
-
-  const speed = ent.aimX[id];
-  let travel = speed * TICK_DT;
-  // Arrival is a loop: an overshoot walks on into the next leg.
-  for (let guard = 0; guard < 8 && travel >= d; guard++) {
-    travel -= d;
-    ent.posX[id] = nd.x;
-    ent.posY[id] = nd.y;
-    if (nd.layer !== ent.entLayer[id]) {
-      // Deck roads (issue #33): the node is on the surface the road is on.
-      ent.height[id] = resolveHeight(state.map, nd.x, nd.y, nd.layer);
-      ent.entLayer[id] = nd.layer;
-    }
-    const next = chooseNext(state, id, node);
-    ent.ammoB[id] = ent.cooldownB[id] + 1;
-    ent.cooldownB[id] = node;
-    ent.timerA[id] = next;
-    if (next < 0) {
-      halt(ent, id);
-      snapUnitHeight(state, id, false);
-      return;
-    }
-    node = next;
-    nd = g.nodes[node];
-    dx = nd.x - ent.posX[id];
-    dy = nd.y - ent.posY[id];
-    d = Math.sqrt(dx * dx + dy * dy);
-    if (d > 1e-6) {
-      hx = dx / d;
-      hy = dy / d;
-    }
-  }
-  if (travel > 0 && d > 1e-6) {
-    ent.posX[id] += hx * travel;
-    ent.posY[id] += hy * travel;
-  }
-  ent.velX[id] = hx * speed;
-  ent.velY[id] = hy * speed;
-  ent.yaw[id] = atan2Poly(hy, hx);
-  ent.animState[id] = speed > 0 ? ANIM_MOVING : 0;
-  snapUnitHeight(state, id, false);
-}
-
-function halt(ent: SimState["ent"], id: number): void {
-  ent.velX[id] = 0;
-  ent.velY[id] = 0;
-  ent.animState[id] = 0;
-}
-
-/**
- * Starts a ground unit on its team's road: `start` is the node it walks to
- * first (the entry node, or for an outpost spawn the nearest node of its own
- * net). From the production console that first leg is a straight walk to the
- * node, as before.
- */
-export function startRoute(state: SimState, id: number, start: number): void {
-  const ent = state.ent;
-  ent.timerA[id] = start;
-  ent.cooldownB[id] = -1;
-  ent.ammoB[id] = 0;
-  ent.timerB[id] = 0;
-  ent.aimX[id] = ROUTE_TOP_SPEED;
 }
 
 /**
@@ -904,7 +1062,7 @@ export function startRoute(state: SimState, id: number, start: number): void {
  * It drives at the original's speed and, like the original's route follower,
  * never stops to fight: its guns fire on the move (SIM_VERSION 52; until then
  * anything hostile in its reach halted it, rules.md §4's Metropolis rule). On an
- * arena with the graph the unit is a route follower instead (moveRouteFollower).
+ * arena with the graph the unit is a route follower instead (route.ts routeTick).
  */
 function moveGroundUnit(state: SimState, id: number, speed: number): void {
   const ent = state.ent;
@@ -1163,12 +1321,8 @@ export function worstHoverRise(
 /** Height rule shared by movement, separation and spawning. */
 export function snapUnitHeight(state: SimState, id: number, air: boolean): void {
   const ent = state.ent;
-  if (air) {
-    const g = sampleHeight(state.map, ent.posX[id], ent.posY[id]);
-    const floor = g < state.map.waterLevel ? state.map.waterLevel : g;
-    ent.height[id] = floor + AIR_ALTITUDE;
-    return;
-  }
+  // An aircraft's height is its flight's (aircraftFly, placeAircraft).
+  if (air) return;
   const wr = resolveWalker(state.map, ent.posX[id], ent.posY[id], ent.height[id]);
   ent.entLayer[id] = wr.layer;
   ent.height[id] = wr.height;

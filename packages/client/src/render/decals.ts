@@ -21,10 +21,19 @@
 // One InstancedMesh per decal image, an instance per quad, every matrix written
 // at load: nothing moves, and the frame loop never touches them.
 //
-// Not modelled: the drawer's depth (the mean of four points, less 0x100, in a
-// painter's sort) — a polygon offset keeps the quads off the surfaces they lie
-// on; additive blending adds in three's linear space, the original's in the
-// frame buffer's; the draw only within the viewer's 5x5 block of cells.
+// - The drawer's depth (fcop-fidelity.md G13): the original sorts its display
+//   list, far keys first, with no depth buffer (render/facers.ts has the
+//   reading), and a quad's key is the mean of its centre's and its first three
+//   corners' view depths less 0x100 -- the fourth corner's is never read
+//   (`pyro_draw.c` 0x0043783d..0x00437864, PYRO_DRAW_DEPTH_BIAS; the corners
+//   in `pyro_place`'s order (-x, +z) (+x, +z) (+x, -z) (-x, -z), 0x00436f91).
+//   So the quad is drawn whole over what sorts farther -- the plates it hangs
+//   over, whose keys are their own unbiased means -- and under what sorts
+//   nearer. The vertex shader stands each corner where it projects and tests
+//   it at that key (DECAL_KEY_PATCH): one depth for the whole quad, as the
+//   sort has it, where a polygon offset stood in until then.
+//
+// Drawn only within the viewer's 5x5 block of cells (setDecalWindow).
 
 import type { MapData } from "@metropolis/sim";
 import * as THREE from "three";
@@ -70,6 +79,29 @@ export function setDecalWindow(win: DrawWindow): void {
 export function decalUrl(mapId: string, decal: SceneryDecal): string {
   return `/models/decals/${mapId}/${decal.file}`;
 }
+
+/** PYRO_DRAW_DEPTH_BIAS, 0x100 in the 512-a-metre view: half a metre. */
+export const DECAL_DEPTH_BIAS = 0x100 / 512;
+
+/**
+ * The quad's sort key as its depth: the mean view depth of its centre and
+ * corners (-x, +z), (+x, +z), (+x, -z) -- three's (1, 0, -1), (1, 0, 1),
+ * (-1, 0, 1) in the unit quad (quadGeometry) -- less the bias, written into
+ * every vertex's clip z so it projects where it did and tests at the key.
+ */
+export const DECAL_KEY_PATCH = `#include <project_vertex>
+{
+	mat4 dcsView = modelViewMatrix;
+#ifdef USE_INSTANCING
+	dcsView = modelViewMatrix * instanceMatrix;
+#endif
+	float dcsKey = -( ( dcsView * vec4( 0.0, 0.0, 0.0, 1.0 ) ).z
+		+ ( dcsView * vec4( 1.0, 0.0, -1.0, 1.0 ) ).z
+		+ ( dcsView * vec4( 1.0, 0.0, 1.0, 1.0 ) ).z
+		+ ( dcsView * vec4( -1.0, 0.0, 1.0, 1.0 ) ).z ) / 4.0 - ${DECAL_DEPTH_BIAS.toFixed(6)};
+	vec4 dcsClip = projectionMatrix * vec4( 0.0, 0.0, -dcsKey, 1.0 );
+	gl_Position.z = dcsClip.z / dcsClip.w * gl_Position.w;
+}`;
 
 function rad(raw: number): number {
   return (raw * 2 * Math.PI) / RECORD_TURN;
@@ -193,11 +225,16 @@ export function loadDecals(
           depthWrite: !additive,
           blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
           side: first.twoSided ? THREE.DoubleSide : THREE.FrontSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -4,
           toneMapped: false,
         });
+        // The drawer's sort key as the quad's one depth (DECAL_KEY_PATCH).
+        material.onBeforeCompile = (shader) => {
+          shader.vertexShader = shader.vertexShader.replace(
+            "#include <project_vertex>",
+            DECAL_KEY_PATCH,
+          );
+        };
+        material.customProgramCacheKey = () => "dcsKey";
         const mesh = new THREE.InstancedMesh(quadGeometry(decal), material, quads.length);
         mesh.frustumCulled = false;
         mesh.matrixAutoUpdate = false;

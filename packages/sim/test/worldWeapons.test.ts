@@ -381,7 +381,8 @@ describe("PA units carry their spawner records (fcop-fidelity.md W3)", () => {
       expect(ent.hp[id]).toBe(hp);
       expect(ent.hp[id]).toBe(ARCHETYPE_MAX_HP[a]);
       expect(ent.weaponProfile[id]).toBe(weapon);
-      expect(d01.weapons[weapon]).toEqual(pa.weapons[weapon]);
+      // The same profile; only the round's hit boxes are the imported arena's.
+      expect({ ...d01.weapons[weapon], round: 0 }).toEqual({ ...pa.weapons[weapon], round: 0 });
     }
   });
 });

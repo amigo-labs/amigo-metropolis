@@ -12,6 +12,7 @@ import {
   billboardCorners,
   colourAnimByte,
   drawFacers,
+  FACER_DEPTH_BIAS,
   FACER_LINE,
   FACER_NEAR,
   FACER_STAR,
@@ -22,6 +23,7 @@ import {
   parseFacers,
   registerFacers,
   starWedges,
+  toKeyDepth,
   viewDepth,
 } from "../src/render/facers";
 import { FxView } from "../src/render/fx/common";
@@ -392,5 +394,90 @@ describe("the Fusion Torpedo's and the Plasma Flare's round is Cobj 46's star", 
       const list = Array.isArray(b.mesh.material) ? b.mesh.material : [b.mesh.material];
       for (const m of list) expect(m.blending).not.toBe(THREE.AdditiveBlending);
     }
+  });
+});
+
+describe("the sort key: a facer at its point's depth less 0x100", () => {
+  test("the bias is 0x100 in the 512-a-metre view: half a metre", () => {
+    expect(FACER_DEPTH_BIAS).toBe(0.5);
+  });
+
+  test("moves every corner along its own eye ray: the same pixels, one depth", () => {
+    const { camera, view } = viewOf(new THREE.Vector3(0, 5, 20), new THREE.Vector3(0, 0, 0));
+    const corners = new Float32Array(12);
+    // A line from near to far: corners at their ends' own depths.
+    lineCorners(view, -1, 0, 8, 2, 1, -10, 0.2, 0.3, corners);
+    const d0 = viewDepth(view, -1, 0, 8);
+    const d1 = viewDepth(view, 2, 1, -10);
+    const before: THREE.Vector3[] = [];
+    for (let k = 0; k < 4; k++) {
+      before.push(new THREE.Vector3(corners[k * 3], corners[k * 3 + 1], corners[k * 3 + 2]));
+    }
+    const key = (d0 + d1) / 2 - FACER_DEPTH_BIAS;
+    toKeyDepth(view, corners, 4, key);
+    for (let k = 0; k < 4; k++) {
+      const p = new THREE.Vector3(corners[k * 3], corners[k * 3 + 1], corners[k * 3 + 2]);
+      expect(viewDepth(view, p.x, p.y, p.z)).toBeCloseTo(key, 4);
+      const a = before[k].clone().project(camera);
+      const b = p.clone().project(camera);
+      expect(b.x).toBeCloseTo(a.x, 5);
+      expect(b.y).toBeCloseTo(a.y, 5);
+    }
+  });
+});
+
+describe("the damaged arms on a facer (0x00428ff0)", () => {
+  test("an add facer's tint loses half its green and blue; a star keeps its colours", () => {
+    const set = parseFacers({
+      fcop: {
+        frames: 1,
+        facers: [
+          {
+            kind: "line",
+            mode: "add",
+            rgb: [128, 100, 64],
+            uv: [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+            ],
+            texture: 0,
+            from: [[0, 0, 0]],
+            to: [[0, 1, 0]],
+            half: [[0.1, 0.1]],
+          },
+          {
+            kind: "line",
+            mode: "half",
+            rgb: [128, 128, 128],
+            uv: [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+            ],
+            texture: 0,
+            from: [[0, 0, 0]],
+            to: [[0, 1, 0]],
+            half: [[0.1, 0.1]],
+          },
+          {
+            kind: "star",
+            at: [[0, 0, 0]],
+            radius: [1],
+            centre_rgb: [128, 106, 56],
+            rim_rgb: [0, 0, 0],
+            wedge_cap: 8,
+          },
+        ],
+      },
+    });
+    const [add, grey, star] = set?.facers ?? [];
+    expect([...add.hitColour]).toEqual([...Float32Array.of(256 / 255, 100 / 255, 64 / 255)]);
+    // Material 0 grey 0x80: (g, g >> 1, g >> 1) doubled, a colour now.
+    expect([...grey.colour]).toEqual([1, 1, 1]);
+    expect([...grey.hitColour]).toEqual([...Float32Array.of(1, 128 / 255, 128 / 255)]);
+    expect([...star.hitColour]).toEqual([...star.colour]);
   });
 });

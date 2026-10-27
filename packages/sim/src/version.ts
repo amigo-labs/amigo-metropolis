@@ -1498,4 +1498,226 @@
 //     the standoff is the octagonal estimate; the box is ±20 x ±24 m (jet) and
 //     ±28 x ±30 m (Fortress), its axes the right way round (they were crossed).
 //     Timers in engine units. The Warden goldens play differently (04, 07).
-export const SIM_VERSION = 104;
+// v105: the Flamethrower, the Concussion Beam and the Shockwave Generator
+//     spread their damage as the original's effects do (fcop-fidelity.md W1;
+//     RE M3-OR; sustain.ts). The flame fires every tick it is held (gap 0, no
+//     more 5-tick pulse) and keeps a trail (records 40 / 45) flying from the
+//     muzzle at the lock at 2048 (4.69 m/s), a node per 134 / 132 sixteenths;
+//     each node not waiting hurts every body it reaches by `(half_10 + half_h)
+//     * 16` within 8 m of the shooter, 6 (B 10) -- the lock twice, as retail's
+//     sweep asks the target and then the registry (0x0044b2fc, 0x0044b3b1) --
+//     waits 10 and ends the stream there; nodes live ~39 (B ~60) frames by
+//     their colour ramp, a wall ends the stream. The beam is the aimed trail
+//     (100 / 105) from the muzzle at 16384 (1.25 m a frame) for 0x96 units,
+//     cut at walls, hurting every body near its head-to-end segment once a
+//     shot (ten at most) while the segment is under 0x14000 on every axis;
+//     block B raises record 107 at each body and terrain hit: a 50-point
+//     expanding shell. The shockwave raises its expanding shell (170 / 175) on
+//     the mech, growing 95 / 111 sixteenths a frame from 409 (the client's
+//     scale; the original's could not be established), blasting the band
+//     [last radius, radius + thickness) << 4 on every tick with both low bits
+//     set, at its limit and when its colours fade, each body `300 * (outer -
+//     d) / outer`, d octagonal. Gone: FLAME_PULSE_TICKS, the instant beam's
+//     1 m burst and the 6 m flat pulse. The trails and shells are hashed while
+//     any lives (appended). No golden fires the three: every hash holds,
+//     re-recorded for the header.
+// v106: the guns pitch as the original's (fcop-fidelity.md G12, I6).
+//     Every PA turret record carries flag byte 0x07, whose 0x02 the construct
+//     turns into TURRET_DF_PITCH (`turret_construct` 0x0041c222, turret.c
+//     874-877): the tick takes the elevation of its target's reference point
+//     over its own (the octagonal run, negated, `turret_tick`
+//     0x0041c5f8..0x0041c67e), clamps it to +-0x200 (an eighth of a turn) and
+//     turns it by the yaw's own 110 units a tick (0x0041c74f..0x0041c78c),
+//     levelling with no target (0x0041c687); `EntityStore.pitch`, hashed for
+//     live turrets. The gun stands on its base's point 0 and its round leaves
+//     from its model's point 0 through `math_matrix_from_angles(yaw, pitch, 0)`
+//     (`cact_weapon_discharge` 0x0044d98d; MapData.turretGuns from
+//     gen:pamodels' `turrets`), aimed and traced from there; it left 0.6 m ahead
+//     along the aim and 0.6 m up from the ground. The +-22.5° arc is the dot of
+//     the gun's row 2 with the aim in three dimensions (`discharge_arc_blocks`
+//     0x0044db71), for the turrets and for the Dreadnought's guns, which never
+//     pitch (mount byte 0 on all six arenas: no CACT_MOUNT_AIM_PITCH,
+//     0x004259d8) and so refuse an aim more than 22.5° above or below their
+//     level barrels; the arc was tested flat. Every golden that fights moves
+//     (02, 03, 04, 05, 07); golden-03's breach comes at 79.8 s (77.2 s).
+// v107: four of the original's smaller rules (fcop-fidelity.md P8, E20, R12,
+//     U4). The powered Electric Gun jumps from its lock to at most two more
+//     bodies of another side whose reference points lie inside a 4 m cube about
+//     the lock's, each sent block B's 6 (`player_arc` 0x00459bd0: one PRNG draw
+//     starts a wrapping walk over the entity slots). An arced round (type 7:
+//     the Mortar's shells and fragments, the Plasma Flare, the Sky Captain's
+//     bomb) has no lifetime; past 44 m (0x58000 wu, `vec_distance_xz`) from its
+//     owner's point at launch it is killed silently (`round_orient`
+//     0x00423b28), and that point is hashed. A neutral turret's capture is
+//     asked only of a body the broad phase pairs with it, one 4 m cell off at
+//     most on each axis (`objects_pick_targets` 0x0044fe40), so Hk's 6.15 m
+//     (and Slim's, Joke's, even Mp's reach past 4 m) is clipped by the cell
+//     lines; and the pair walk's order goes by the sim's y first (the
+//     original's x, its rows), then x (toldFirst had them crossed). Team
+//     turrets search by team and find the other side's turrets (`target_type`
+//     4, no type test in `cact_find_target`). 01 and 02 move only by the
+//     arced rounds' hashed words (no lifetime, the owner point); 03, 04 and 07
+//     play differently from their first capture clipped by the cells (ticks
+//     821, 235, 182), 04 and 07 also from turrets firing on turrets; golden-04's
+//     tanks now breach at tick 3134. No golden fires the powered Electric Gun or
+//     flies a round past 44 m.
+// v108: the X1-Alpha against walls, ceilings and the slow row's ledge as the
+//     original (fcop-fidelity.md P4, P5; RE `player_ground_push` 0x00443490,
+//     `player_apply_impulse` 0x00443370, `player_snap_facing` 0x004437d0,
+//     `player_walk_tick` 0x004448a6, `player_hover_tick` 0x00442cea). A move a
+//     wall stops is a contact: WALL_PUSH (0x24000 a step) along the wall's
+//     normal, away from it, into a pending impulse (SimState.avatarImpulse,
+//     hashed), and the wall's kind into the snap state (avatarSnap, hashed).
+//     The next tick spends the impulse -- halved airborne, halved again in the
+//     hover or on a mode floor; the velocity loses its component along it and
+//     decays by an eighth, a rise over 0x100 is cut, no stop test -- and turns
+//     the facing at most 8 units a step toward the wall's direction; while a
+//     snap is pending the hover's drag is 0.375 and it turns at an eighth of its
+//     rate, and a walker's moving state that differs from its command is 0.
+//     A rising walker whose head (1.15 m) passes up through a deck stops rising
+//     and halves its horizontal velocity. The grounded hover moves along the
+//     plane under it (the original's velocity loses its part along `up`), so a
+//     slope no longer reads as a drop: it stays on the ground down a slope and
+//     leaves it at an edge or a crest with the plane's vertical speed; on the
+//     slow row (states 1, 2) a step over its band but under 0.1 m is put back,
+//     its horizontal velocity zeroed. Every golden plays differently.
+// v109: a kind-0x14 shell (the powered Mortar's, the powered Plasma Flare's)
+//     bursts as the original's (fcop-fidelity.md P8; `cact_round_advance`
+//     0x00423e40): at the apex (vertical speed not negative, then negative) four
+//     copies, each pushed into its own quadrant by three PRNG draws (the
+//     original's x and z `(rand & 0x3fff) - 0x2000 +- 0x2000`, its y down by
+//     `(rand & 0x1fff) + 0x2000 * i`, world units a second), where Metropolis
+//     threw a cross at 1.5 m/s with no vertical speed; and the shell is not
+//     killed, so it falls on and goes off where it lands, a fifth blast. No
+//     golden fires a powered Mortar or Plasma Flare: every hash holds,
+//     re-recorded for the header.
+// v110: every aircraft flies the original's altitude, launch and crash
+//     (fcop-fidelity.md U4, U3, A19, V7; RE aircraft.c, M3-OT). The heading is
+//     the original's 16.16 3-vector (units.ts AirState, hashed): its Y is the
+//     altitude controller's command (±0x1800 at the band's edges about the
+//     record's cruise altitude over the coarse envelope plus the model's half
+//     height, `* 3/32` of the error times the half band's reciprocal between,
+//     a 0x200 deadband), decayed by 7/8, the pitch clamped, the position
+//     clamped up to the floor (0x00420a31..0x00420c25) -- where every flyer
+//     rode AIR_ALTITUDE 6 m (jets, Fortress) or WARDEN_ALTITUDE 7 m (the
+//     captain) over the heightfield. The travel loses the bank's and pitch's
+//     `(0x200 - tilt) >> 9` (0x00420b84). Spawn flag 4 launches it from the
+//     surface in a straight climb into ENGAGE (0x0042087f), flag 2 starts it
+//     0x20000 wu up; the construct's random heading. The records' altitudes,
+//     spawn flags and models' half heights are imported per arena (map JSON
+//     jetFlight / fortressFlight / skyFlight). Shot down, the captain always,
+//     a jet or Fortress 10 in 16, tumbles (`aircraft_op4` 0x00420296; drag
+//     1/64, gravity `(3 - (rand & 0xf)) << 9`) and dies where it lands: its
+//     EV_DEATH, points, figures, the captain's respawn countdown and the X1's
+//     Walker Kill (the hitter's serial resolved then) move to the landing; it
+//     ticks on meanwhile (the captain's decision pass and its missile and
+//     bomb), stays a target, and is restored at home. The captain's missile on
+//     Slim and Joke leaves at an eighth of its speed and accelerates
+//     (`cact_missile_spawn` 0x0044d103; map JSON skyMissileAccel). The tank
+//     and jet gates and the captain's spend blocks read the count words 27..30
+//     (SimState.unitCount, hashed): raised at the purchase, lowered by a death,
+//     so a refused spawn drifts them. Every golden moves (the count words are
+//     hashed on every map); the PA and Warden goldens play differently.
+// v111: ground units on the road net walk the original's route cursor
+//     (fcop-fidelity.md U1; RE route_init.c, route.c, route_step.c,
+//     route_tick.c, route_near.c; route.ts), ported in integer arithmetic and
+//     checked frame for frame against the RE's transcription: the leg after the
+//     next is chosen on the leg (the look-ahead), not on arrival; a turning
+//     corner is rounded across its window (the heading linear, the position cut
+//     inside by the quadratic offset); legs are `vec3_length_approx` long over
+//     the nodes' imported heights; the speed word ramps and holds in engine
+//     ticks, contacts writing the hold signed; the occupancy is the original's
+//     nibble (inc/dec on the turn, dec on the way out, the first leg uncounted)
+//     instead of a live count; links are scored in the engine's order (the arena
+//     import writes them so); a script-closed node is refused (none on the six
+//     arenas); a Dreadnought touching a follower makes the rear-end transfer
+//     (`cnet_route_contact`); the traffic yield also answers to the node it
+//     goes to next; units start on their spawn node and choose at once. The
+//     cursor and the occupancy are hashed on an arena with the graph. Every
+//     golden on an imported arena diverges (the first spawn's choice).
+// v112: a round meets a body as the original's pair test decides it
+//     (fcop-fidelity.md G1, I6, P4; contact.ts; RE `cact_pair_test` 0x00450190,
+//     `cact_hit_boxes` 0x0044f640, `box_against_boxes` 0x0044fad0, M3-OW): the
+//     octagonal distance between the two reference points (box 0's centre of
+//     the frame, placed) less the two models' radii below zero, the coarse
+//     cylinder (the boxes' horizontal radii and half heights), then the hit
+//     boxes both ways round, each rotated into the other's frame -- in place of
+//     one flat circle of the body's radius plus 0.5 m. Every round is its own
+//     model (the catalogue entry's aRSL slot 0: a world weapon's by its id, a
+//     player weapon's by its loadout code; MapWeapon.round, MapData.shapes);
+//     the mech is its legs at the legs' frame and its cockpit at the cockpit's,
+//     standing on the legs' model point 0 of the frame (the partner,
+//     player_partner.c op 0x0b), so the crouch, the stride and the transform's
+//     ramp move its boxes; a turret its gun on its base's point 0, on its yaw
+//     and pitch, and the base (turret_part.c op 0x0b); the Dreadnought its hull
+//     at its walk's frame and its four guns on their mounts (mount.c op 0x0b);
+//     the tank its model on its drawn grounding, an aircraft its model at its
+//     position (its origin since v110). A Dreadnought's rear-end contact with a
+//     follower takes the same ladder (route.ts inContact). The mech's radius
+//     and reference height follow its legs' frame (`walk_select_frame`). The
+//     reference heights are the box centre in 1/512 m (`math_matrix_place_point`
+//     0x00458850 shifts a 16.16 product by 12): they read the halfword as a
+//     world unit, 1/16 of it, since v98; a turret's carries its base's point 0
+//     (the pitch's aim reads it whole), the tank's its grounding. Only arenas
+//     that import their models; the rest keep the circle.
+// v113: the mech is pushed by the actors it touches (fcop-fidelity.md P4;
+//     contact.ts pushContacts; RE `player_push_contacts` 0x00442e70,
+//     `player_push_pair` 0x00442f70, `player_push_apart` 0x00443070,
+//     `player_push_from_box` 0x004431d0, M3-OV, M3-OW): each tick, every body
+//     whose actors carry flag 0x40 (tanks, jets, Fortresses, the Dreadnought's
+//     hull and mounts, turrets' guns and bases, the Sky Captain) within 0.75 m
+//     of sphere gap of its legs -- and with two players the other mech -- is
+//     gated on the coarse half extents and met by the mech's own one-box
+//     contact model (SimState.avatarShape, hashed: built from the legs' frame
+//     at the reset and on every frame of the transform's ramp, its band lowered
+//     by the crouch, `player_transform_shape` 0x00441cf0, `player_bounds_pair`
+//     0x00444f00) against its hit boxes; every met box pushes the mech by
+//     0x2400 (the Dreadnought's 0x4000) per axis of its frame into the wall
+//     push's impulse, the snap goes to 0x10 when no wall set it, the tick's
+//     wall push is doubled, and the toucher deals its +0x1a a step (tank 1,
+//     Dreadnought and each mount 10, the other mech 1, credited as its hit). A
+//     tank's rear-end contact with a Dreadnought no longer counts its gun
+//     mounts (bit 31, 0x00425fdd / 0x004247e5). Every golden moves (the contact
+//     models are hashed on every map).
+// v114: the bodies turn as their matrices do (fcop-fidelity.md I6, U1, G1,
+//     A19; route.ts, orient.ts). A route follower stands at the cursor's own
+//     height -- the leg's line between the nodes' heights plus its record's
+//     height bias << 4 (tank 307, Hk 102, Joke 20; Dreadnought 204, Joke 20;
+//     the tick's 0x004405f4..0x00440672), the corner cut on the height too --
+//     instead of on the sim surface, and a halted one sinks to the ground plus
+//     its box's lower half (`cnet_route_vertical` 0x004414b0); its hull's
+//     matrix is `cnet_route_orient`'s fourth arm, `math_matrix_from_angles(yaw,
+//     pitch, bank)` of the cursor (0x00424bc0; no PA record carries 0x100 or
+//     0x200), rebuilt only on a tick whose step answers bit 1 (0x00424e1e);
+//     Hk's tanks (route flag 0x20) bank into a corner (0x00440be6, 0x00441296).
+//     The Dreadnought's guns stand on, turn on and fire from that matrix, and
+//     their arc is tested against its tilted row 2. An aircraft's up row is
+//     kept whole (`math_matrix_from_forward_up` 0x0043fbc0; the crash's from the
+//     last row, 0x00420ee3). The cockpit's aim is the sim's
+//     (`player_partner_tick` 0x004470d0), and its collider turns by it; every
+//     collider takes its body's matrix. The route blocks are imported per arena
+//     (MapLaneGraph.runnerRoute / juggernautRoute); the tank's reference height
+//     is its origin's. The bank, the hull's angles, the up rows and the aims are
+//     hashed. Every golden diverges.
+// v115: a route follower's round leaves from its model's point 0 through its
+//     hull's matrix (fcop-fidelity.md W5, U1; `cact_weapon_discharge`
+//     0x0044d98d, the shooter's +0x23 0: the tank's record bitfield 0x200 has
+//     no ALTERNATE), aimed and traced from there -- in place of MUZZLE_HEIGHT
+//     over its position and MUZZLE_OFFSET along its yaw. The point is imported
+//     per arena (gen:pamodels `muzzle`, MapUnitShape.muzzle: Mp's tank 0.154 m
+//     up, 0.105 m behind its origin; Hk's 0.553 up, 0.615 behind; Joke's frame
+//     0's). Every golden with a tank firing diverges.
+// v116: the aircraft fire from their model's points (fcop-fidelity.md U4, U3;
+//     `cact_weapon_discharge` 0x0044d98d, `cact_model_point` 0x00429830): the
+//     point their shooter's +0x23 names through their matrix (orient.ts
+//     airFrame), aimed and traced from there -- the jet's point 0 (record
+//     bitfield 0x202), the Flying Fortress's points 0 and 1 in turn (0x220:
+//     ALTERNATE flips +0x23 as each round comes due, `cact_shooter_step`
+//     0x0044e673; MapWeapon.alternate, gen:palogic reads the bitfields), the Sky
+//     Captain's gun and missile alternating too (its construct ORs 0x20 into
+//     both, 0x0042122d / 0x0042127c) and its bomb from point 0 (0x242); the
+//     hitscan gun's line starts at its muzzle (discharge_instant.c). The
+//     indices are hashed (SimState.shooterMuzzle, CaptainState.muzzle); the
+//     captain's carry over its respawn (`sky_respawn` 0x00422bc0 re-inits no
+//     shooter). gen:pamodels carries points 0 and 1 (MapUnitShape.muzzles).
+export const SIM_VERSION = 116;

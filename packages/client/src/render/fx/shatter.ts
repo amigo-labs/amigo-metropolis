@@ -39,6 +39,11 @@
 // drawn: the fragmented arena's halving. The rolls draw from the client's stream, not `game_rand`
 // (fcop-fidelity.md E7, A18). One mesh per archetype, preallocated; nothing
 // allocates once a match runs.
+//
+// A face keeps its lighting inputs (`_FCOP_LIGHT`, render/fcopModel.ts), which
+// the unit's lit materials shade it by, and its normal turned by the unit's
+// yaw at the raise: the shade a face had when it left the model. Not read:
+// whether the original turns a flying face's normals by its spins.
 
 import { MAX_ENTITIES } from "@metropolis/sim";
 import * as THREE from "three";
@@ -56,6 +61,7 @@ import {
   TURN,
   WORLD_UNITS_PER_METRE,
 } from "../../effects/records";
+import { HIT_ATTRIBUTE, LIGHT_ATTRIBUTE } from "../fcopModel";
 import { TEAM_UV_ATTR, TEAM_UV_MASK } from "../teamUv";
 import { type FxPoses, POSE_STRIDE, prepareMesh } from "./common";
 import {
@@ -113,6 +119,8 @@ const SPIN_RAD_S = ((2 * Math.PI) / TURN) * (300 / 256);
 const TO_RAD = (2 * Math.PI) / TURN;
 /** The ground test's floor when no terrain sampler is set (tests). */
 const NO_GROUND = -100;
+/** `_FCOP_LIGHT` for a face that has none: material 0, grey 0x80 (unity). */
+const UNLIT: readonly number[] = [0, 0x80, 0x80, 0x80];
 
 interface Kind {
   readonly mesh: THREE.Mesh;
@@ -121,6 +129,11 @@ interface Kind {
   readonly uv: Float32Array;
   readonly normal: Float32Array;
   readonly colour: Float32Array;
+  /**
+   * Per vertex: the face's `_FCOP_LIGHT` (render/fcopModel.ts), which a lit
+   * unit material shades by; material 0 at 0x80 (unity) where the model has none.
+   */
+  readonly light: Float32Array;
   /** Per vertex: the team's texture offset times the model's mask (render/teamUv.ts). */
   readonly teamUv: Float32Array;
   readonly teamMask: Float32Array;
@@ -234,6 +247,8 @@ export class Shatter {
       const uv = new Float32Array(n * 2);
       const normal = new Float32Array(n * 3);
       const colour = new Float32Array(n * 3).fill(1);
+      const light = new Float32Array(n * 4);
+      for (let i = 0; i < n; i++) light.set(UNLIT, i * 4);
       const teamUv = new Float32Array(n * 2);
       const teamMask = new Float32Array(n);
       for (const [name, a, size] of [
@@ -241,6 +256,7 @@ export class Shatter {
         ["uv", uv, 2],
         ["normal", normal, 3],
         ["color", colour, 3],
+        [LIGHT_ATTRIBUTE, light, 4],
         [TEAM_UV_ATTR, teamUv, 2],
         [TEAM_UV_MASK, teamMask, 1],
       ] as const) {
@@ -248,6 +264,10 @@ export class Shatter {
         attr.setUsage(THREE.DynamicDrawUsage);
         geometry.setAttribute(name, attr);
       }
+      // The unit's materials read a hit flag (render/damaged.ts): a face that
+      // has left the model is drawn undamaged. Not read: the flag the
+      // original's flying faces are submitted with.
+      geometry.setAttribute(HIT_ATTRIBUTE, new THREE.BufferAttribute(new Float32Array(n), 1));
       geometry.setDrawRange(0, 0);
       const mesh = prepareMesh(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()), scene);
       mesh.visible = false;
@@ -259,6 +279,7 @@ export class Shatter {
         uv,
         normal,
         colour,
+        light,
         teamUv,
         teamMask,
         local: new Float32Array(f * 9),
@@ -366,6 +387,7 @@ export class Shatter {
     const uv = g.getAttribute("uv") as THREE.BufferAttribute | undefined;
     const normal = g.getAttribute("normal") as THREE.BufferAttribute | undefined;
     const colour = g.getAttribute("color") as THREE.BufferAttribute | undefined;
+    const light = g.getAttribute(LIGHT_ATTRIBUTE) as THREE.BufferAttribute | undefined;
     const mask = g.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute | undefined;
     const peers = rec.peeredFaces === PEER_ALL ? n : rec.peeredFaces;
     for (let m = 0; m < n; m++) {
@@ -404,9 +426,19 @@ export class Shatter {
         const o2 = (f * 3 + k) * 2;
         kind.uv[o2] = uv ? uv.getX(vi) : 0;
         kind.uv[o2 + 1] = uv ? uv.getY(vi) : 0;
-        kind.normal[o] = normal ? normal.getX(vi) : 0;
+        // The normal turned with the face (the lit materials shade by it).
+        const nx = normal ? normal.getX(vi) : 0;
+        const nz = normal ? normal.getZ(vi) : 0;
+        kind.normal[o] = nx * c + nz * s;
         kind.normal[o + 1] = normal ? normal.getY(vi) : 1;
-        kind.normal[o + 2] = normal ? normal.getZ(vi) : 0;
+        kind.normal[o + 2] = -nx * s + nz * c;
+        const l4 = (f * 3 + k) * 4;
+        if (light) {
+          kind.light[l4] = light.getX(vi);
+          kind.light[l4 + 1] = light.getY(vi);
+          kind.light[l4 + 2] = light.getZ(vi);
+          kind.light[l4 + 3] = light.getW(vi);
+        } else kind.light.set(UNLIT, l4);
         kind.colour[o] = colour ? colour.getX(vi) : 1;
         kind.colour[o + 1] = colour ? colour.getY(vi) : 1;
         kind.colour[o + 2] = colour ? colour.getZ(vi) : 1;
@@ -585,6 +617,7 @@ export class Shatter {
       (kind.geometry.getAttribute("uv") as THREE.BufferAttribute).needsUpdate = true;
       (kind.geometry.getAttribute("normal") as THREE.BufferAttribute).needsUpdate = true;
       (kind.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
+      (kind.geometry.getAttribute(LIGHT_ATTRIBUTE) as THREE.BufferAttribute).needsUpdate = true;
       (kind.geometry.getAttribute(TEAM_UV_ATTR) as THREE.BufferAttribute).needsUpdate = true;
       (kind.geometry.getAttribute(TEAM_UV_MASK) as THREE.BufferAttribute).needsUpdate = true;
       if (kind.count === 0) kind.mesh.visible = false;
@@ -722,6 +755,7 @@ export class Shatter {
         kind.normal[f * 9 + k] = kind.normal[last * 9 + k];
         kind.colour[f * 9 + k] = kind.colour[last * 9 + k];
       }
+      for (let k = 0; k < 12; k++) kind.light[f * 12 + k] = kind.light[last * 12 + k];
       for (let k = 0; k < 6; k++) {
         kind.uv[f * 6 + k] = kind.uv[last * 6 + k];
         kind.teamUv[f * 6 + k] = kind.teamUv[last * 6 + k];

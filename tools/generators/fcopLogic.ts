@@ -262,6 +262,15 @@ interface RawActor {
   ground_cast?: number;
   /** The height the original stands it at, metres (fcopTerrain.ts); null where no plate is. */
   ground_y?: number | null;
+  /** An aircraft's or Sky Captain's flight block, raw (readGroundCasts). */
+  flight?: PaFlight;
+  /** A type-98 catalogue entry's key byte and its raw acceleration (+0x14). */
+  weapon_key?: number;
+  weapon_accel?: number;
+  /** A pathed actor's route block (types 5 and 28), raw (readGroundCasts). */
+  route?: PaRoute;
+  /** A tank's or an aircraft's shooter bitfield, raw (readGroundCasts). */
+  shooter_bits?: number;
 }
 
 interface RawNetNode {
@@ -298,6 +307,10 @@ export const ACT = {
    * screen), it drives its Cnet like a tank, and its four guns sit on its hull.
    */
   DREADNOUGHT: 28,
+  /** The Sky Captain (dispatch.c), one record per level band. */
+  SKY_CAPTAIN: 37,
+  /** A type-98 weapon catalogue entry (prepare.c 0x0044eb80). */
+  WEAPON: 98,
   NEUTRAL_TURRET: 36,
   TRIGGER: 95,
   MARKER_14: 14,
@@ -376,7 +389,46 @@ export function readGroundCasts(
     stack(i32(blob, TACT_PAYLOAD + 4), i32(blob, TACT_PAYLOAD + 12));
   const metres = (y: number | null): number | null =>
     y === null ? null : Math.round(y * 10000) / 10000;
+  const i16 = (b: Uint8Array, o: number): number => ((b[o] | (b[o + 1] << 8)) << 16) >> 16;
   for (const a of actors) {
+    if (a.act_type === ACT.AIRCRAFT || a.act_type === ACT.SKY_CAPTAIN) {
+      // The flight block `aircraft_construct` reads (0x00420380): the three
+      // altitudes at payload +0x3a / +0x3c / +0x3e and the spawn flags at +0x35
+      // (RE fcop/actor_aircraft.h AREC_*), raw.
+      const blob = recordOf(a);
+      a.flight = {
+        altMin: i16(blob, TACT_PAYLOAD + 0x3a),
+        altCruise: i16(blob, TACT_PAYLOAD + 0x3c),
+        altMax: i16(blob, TACT_PAYLOAD + 0x3e),
+        spawn: blob[TACT_PAYLOAD + 0x35],
+      };
+      if (a.act_type === ACT.SKY_CAPTAIN) continue;
+    }
+    if (a.act_type === ACT.PATHED_ACTOR || a.act_type === ACT.AIRCRAFT) {
+      // The BaseShooter block at payload +0x20 (type 5's CACT_TYPE5_REC_SHOOTER,
+      // type 9's AREC_SHOOTER): its bitfield, the halfword after the weapon id.
+      a.shooter_bits = i16(recordOf(a), TACT_PAYLOAD + 0x22) & 0xffff;
+    }
+    if (a.act_type === ACT.PATHED_ACTOR || a.act_type === ACT.DREADNOUGHT) {
+      // The route block `cnet_route_init` reads (0x004415f0, handed payload
+      // +0x30 by the type-5 construct at 0x00425257): its flag word's low
+      // halfword (+0) and its height bias (+4), raw (RE fcop/net_route.h
+      // CNET_ROUTE_PARAM_FLAGS, _HEIGHT_BIAS).
+      const blob = recordOf(a);
+      a.route = {
+        flags: blob[TACT_PAYLOAD + 0x30] | (blob[TACT_PAYLOAD + 0x31] << 8),
+        heightBias: i16(blob, TACT_PAYLOAD + 0x34),
+      };
+    }
+    if (a.act_type === ACT.WEAPON) {
+      // A catalogue entry is the payload from +0x10 (`cact_weapon_catalogue_load`
+      // 0x0044eb80): its key byte, and +0x14 the acceleration before the
+      // loader's `* 256 / 300` (0x0044eb10).
+      const blob = recordOf(a);
+      a.weapon_key = blob[TACT_PAYLOAD + 0x10];
+      a.weapon_accel = i16(blob, TACT_PAYLOAD + 0x10 + 0x14);
+      continue;
+    }
     if (a.act_type === ACT.AIRCRAFT) {
       // No selector: `aircraft_construct` places it by the surface query from
       // its record's own point (0x00420501), whose y is 0 on every record.
@@ -412,6 +464,13 @@ export interface PaShooter {
   readonly fovRaw: number;
   readonly engageRangeRaw: number;
   readonly targetingDelayRaw: number;
+  /**
+   * The BaseShooter block's bitfield (`cact_shooter_init` 0x0044ea00, record
+   * +2), raw, where readGroundCasts reads it (a tank's and an aircraft's, at
+   * payload +0x22): 0x20 is ALTERNATE, which flips the muzzle index +0x23
+   * every round (`cact_shooter_step` 0x0044e673). Absent elsewhere.
+   */
+  readonly bitfield?: number;
 }
 
 export interface PaSpawn {
@@ -437,6 +496,17 @@ export interface PaSpawn {
  * spawn point — node 0 of its Cnet, next to the HQ — not a base structure: the
  * original has no destructible core (fcop-re/ranges-turrets-capture.md, top).
  */
+/**
+ * A pathed actor's route block, raw (`cnet_route_init` 0x004415f0): the flag
+ * word's low halfword -- 0 the tank, 0x20 (CNET_ROUTE_BANK) Hk's, 0x8 the
+ * Dreadnought -- and the height bias, `<< 4` world units over the road the
+ * cursor walks (the tick's 0x00440672).
+ */
+export interface PaRoute {
+  readonly flags: number;
+  readonly heightBias: number;
+}
+
 export interface PaDreadnought {
   readonly id: number;
   readonly x: number;
@@ -460,6 +530,8 @@ export interface PaDreadnought {
   /** Its own route block at payload 0x30: move_speed 1024, accel 1228. */
   readonly moveSpeed: number;
   readonly acceleration: number;
+  /** The same block's flags and height bias (PaRoute). */
+  readonly route: PaRoute;
 }
 
 export interface PaTurret {
@@ -523,6 +595,16 @@ export interface PaUnit {
   readonly shooter: PaShooter;
   readonly spawnTicks: number;
   readonly spawnLimit: number;
+  /** Its route block's flags and height bias (PaRoute). */
+  readonly route: PaRoute;
+}
+
+/** An aircraft record's flight block, raw (sim balance.ts AircraftFlight, less the model's half height). */
+export interface PaFlight {
+  readonly altMin: number;
+  readonly altCruise: number;
+  readonly altMax: number;
+  readonly spawn: number;
 }
 
 export interface PaAircraft {
@@ -544,6 +626,7 @@ export interface PaAircraft {
    * record's point at y 0 (fcopTerrain.ts surfaceHeight). null where no plate is.
    */
   readonly groundY: number | null;
+  readonly flight: PaFlight;
 }
 
 export interface PaProp {
@@ -620,6 +703,10 @@ export interface PaLogic {
   readonly triggers: readonly PaTrigger[];
   readonly units: readonly PaUnit[];
   readonly aircraft: readonly PaAircraft[];
+  /** The Sky Captain records (type 37), their flight blocks. */
+  readonly skyCaptains: readonly { readonly id: number; readonly flight: PaFlight }[];
+  /** The type-98 catalogue: each entry's key and raw acceleration (+0x14). */
+  readonly catalogue: readonly { readonly key: number; readonly accelRaw: number }[];
   readonly props: readonly PaProp[];
   readonly nets: readonly PaNet[];
   /** Types 14/89: extracted for provenance only (fcop-logic.md §8.5). */
@@ -639,6 +726,11 @@ function shooter(p: RawParams): PaShooter {
     engageRangeRaw: p.engage_range ?? 0,
     targetingDelayRaw: p.targeting_delay ?? 0,
   };
+}
+
+function routeOf(a: RawActor): PaRoute {
+  if (!a.route) throw new Error(`type-${a.act_type} record ${a.matching}: route block not read`);
+  return a.route;
 }
 
 /** Cobj id of the alive model, i.e. resource slot 0. */
@@ -663,6 +755,12 @@ function turret(a: RawActor): PaTurret {
     groundCast: castOf(a),
     groundY: a.ground_y ?? null,
   };
+}
+
+/** An aircraft's or Sky Captain's flight block, which readGroundCasts reads for every one. */
+function flightOf(a: RawActor): PaFlight {
+  if (!a.flight) throw new Error(`type-${a.act_type} record ${a.matching} has no flight block`);
+  return a.flight;
 }
 
 /** The record's height selector, which every type that reads one must carry. */
@@ -748,6 +846,7 @@ export function buildPaLogic(
         },
         moveSpeed: p.unit_template?.move_speed ?? 0,
         acceleration: p.unit_template?.acceleration ?? 0,
+        route: routeOf(a),
       };
     }),
     turrets: of(ACT.TURRET).map(turret),
@@ -791,9 +890,10 @@ export function buildPaLogic(
         netId: a.net_id ?? -1,
         moveSpeed: p.move_speed ?? 0,
         acceleration: p.acceleration ?? 0,
-        shooter: shooter(p),
+        shooter: { ...shooter(p), bitfield: a.shooter_bits ?? 0 },
         spawnTicks: a.spawn_ticks ?? 0,
         spawnLimit: a.spawn_limit ?? 0,
+        route: routeOf(a),
       };
     }),
     aircraft: of(ACT.AIRCRAFT).map((a) => {
@@ -810,10 +910,18 @@ export function buildPaLogic(
         orbitAreaY: p.orbit_area_y ?? 0,
         targetDetectionRange: p.target_detection_range ?? 0,
         timeToDescend: p.time_to_descend ?? 0,
-        shooter: shooter(p),
+        shooter: { ...shooter(p), bitfield: a.shooter_bits ?? 0 },
         spawnTicks: a.spawn_ticks ?? 0,
         groundY: a.ground_y ?? null,
+        flight: flightOf(a),
       };
+    }),
+    skyCaptains: of(ACT.SKY_CAPTAIN).map((a) => ({ id: a.matching, flight: flightOf(a) })),
+    catalogue: of(ACT.WEAPON).map((a) => {
+      if (a.weapon_key === undefined || a.weapon_accel === undefined) {
+        throw new Error(`type-98 record ${a.matching} was not read from the container`);
+      }
+      return { key: a.weapon_key, accelRaw: a.weapon_accel };
     }),
     props: of(ACT.DYNAMIC_PROP).map((a) => ({
       id: a.matching,

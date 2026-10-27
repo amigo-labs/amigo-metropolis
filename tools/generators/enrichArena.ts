@@ -64,7 +64,6 @@ import {
   WORLD_KIND_GUIDED,
   WORLD_KIND_LEAD,
   WORLD_WEAPONS,
-  WU_PER_METRE,
   walkRoad,
   worstHoverRise,
   worstUphillRise,
@@ -155,9 +154,18 @@ interface Logic {
     netId: number;
     gunCount: number;
     gun: Shooter;
+    /** Its route block, raw (fcopLogic.ts PaRoute). */
+    route: { flags: number; heightBias: number };
   }[];
   /** Tank (Runner) spawner records; spawnLimit 20 marks the purchasable ones. */
-  units: { id: number; team: number; health: number; spawnLimit?: number; shooter: Shooter }[];
+  units: {
+    id: number;
+    team: number;
+    health: number;
+    spawnLimit?: number;
+    shooter: Shooter;
+    route: { flags: number; heightBias: number };
+  }[];
   /** Jet (Guardian) and Flying Fortress records. */
   aircraft: {
     id: number;
@@ -165,7 +173,12 @@ interface Logic {
     health: number;
     shooter: Shooter;
     groundY: number | null;
+    flight: RecordFlight;
   }[];
+  /** The Sky Captain records (type 37) and their flight blocks. */
+  skyCaptains: { id: number; flight: RecordFlight }[];
+  /** The type-98 catalogue's keys and raw accelerations. */
+  catalogue: { key: number; accelRaw: number }[];
   turrets: Turret[];
   neutrals: Turret[];
   pickups: {
@@ -196,6 +209,7 @@ interface Logic {
       x: number;
       z: number;
       neighbours: number[];
+      state: number;
       groundCast: number;
       groundY: number | null;
     }[];
@@ -226,6 +240,8 @@ interface Shooter {
   engageRangeRaw: number;
   targetingDelayRaw: number;
   fovRaw: number;
+  /** The record's shooter bitfield, raw, where gen:palogic reads it (tanks, aircraft). */
+  bitfield?: number;
 }
 
 interface Weapon {
@@ -243,6 +259,10 @@ interface Weapon {
   arcCos: number;
   hold: number;
   priority: number;
+  /** ALTERNATE (bitfield 0x20), emitted only when set (map.ts MapWeapon.alternate). */
+  alternate?: number;
+  /** Its round's 3DBB table in the map's `shapes.tables` (the catalogue entry's aRSL slot 0), -1 none. */
+  round: number;
 }
 
 const sx = (x: number): number => x + LOGIC_OFFSET_X;
@@ -1077,9 +1097,101 @@ function outpostQueuesOf(
   };
 }
 
+/** An aircraft record's flight block, raw (fcopLogic.ts PaFlight). */
+interface RecordFlight {
+  altMin: number;
+  altCruise: number;
+  altMax: number;
+  spawn: number;
+}
+
+/**
+ * The sim's flight block (balance.ts AircraftFlight) for the aircraft record
+ * `template`: its altitudes and spawn flags, and its model's Y half-extent
+ * (fcop-fidelity.md U4).
+ */
+function flightOf(
+  logic: Logic,
+  template: number,
+  halfY: number,
+  what: string,
+): { altMin: number; altCruise: number; altMax: number; halfY: number; spawn: number } {
+  const rec =
+    logic.aircraft.find((a) => a.id === template) ??
+    logic.skyCaptains.find((a) => a.id === template);
+  if (!rec) throw new Error(`${what}: no aircraft record ${template}`);
+  const f = rec.flight;
+  if (!(f.altMin < f.altCruise && f.altCruise < f.altMax)) {
+    throw new Error(`${what}: record ${template}'s altitudes are not ordered`);
+  }
+  return { altMin: f.altMin, altCruise: f.altCruise, altMax: f.altMax, halfY, spawn: f.spawn };
+}
+
+/**
+ * A base's jet and Flying Fortress spawner records' flight blocks: the jet
+ * spawner its jet shop requests, the Fortress spawner its heavy zone requests.
+ */
+function baseFlightOf(
+  rules: FcopRules,
+  logic: Logic,
+  models: ModelsArtifact,
+  slot: number,
+): {
+  jetFlight: ReturnType<typeof flightOf>;
+  fortressFlight: ReturnType<typeof flightOf>;
+} {
+  const jet = rules.buyTriggers.find((t) => t.slot === slot && t.kind === "jet");
+  const fort = rules.heavyZones.find((z) => z.slot === slot && z.unit === "flying_fortress");
+  if (!jet || !fort)
+    throw new Error(`${rules.mapId}: slot ${slot} lacks its jet shop or Fortress zone`);
+  return {
+    jetFlight: flightOf(logic, jet.template, models.halves.jet, `${rules.mapId} slot ${slot} jet`),
+    fortressFlight: flightOf(
+      logic,
+      fort.template,
+      models.halves.fortress,
+      `${rules.mapId} slot ${slot} Fortress`,
+    ),
+  };
+}
+
+/**
+ * The route blocks the cursor runs on (`cnet_route_init` 0x004415f0; map.ts
+ * MapRouteParams), `[flags, bias]` raw: the purchasable tanks' (spawn limit 20;
+ * Hk's other type-5 record, flags 0x28, spawns nothing) and the Dreadnoughts',
+ * each one block for both sides.
+ */
+function routesOf(logic: Logic, mapId: string): { runner: number[]; juggernaut: number[] } {
+  const one = (rows: { route: { flags: number; heightBias: number } }[], what: string) => {
+    const set = new Set(rows.map((r) => `${r.route.flags},${r.route.heightBias}`));
+    if (set.size !== 1)
+      throw new Error(`${mapId}: the ${what} records carry ${set.size} route blocks`);
+    return [rows[0].route.flags, rows[0].route.heightBias];
+  };
+  return {
+    runner: one(
+      logic.units.filter((u) => u.spawnLimit === 20),
+      "tank",
+    ),
+    juggernaut: one(logic.dreadnoughts, "Dreadnought"),
+  };
+}
+
+/** The catalogue's weapon 8, the Sky Captain's missile: its raw acceleration. */
+function skyMissileAccelOf(logic: Logic, mapId: string): number {
+  const rows = logic.catalogue.filter((c) => c.key === 8);
+  if (rows.length !== 1) throw new Error(`${mapId}: ${rows.length} catalogue entries keyed 8`);
+  return rows[0].accelRaw;
+}
+
 /** Interns weapon profiles so identical originals share one index. */
 class WeaponTable {
   readonly list: Weapon[] = [];
+  /**
+   * A world weapon's round by its catalogue id (<mission>-models.json
+   * `shapes.worldRounds`), which `shooterWeapon` writes into the profile.
+   */
+  constructor(readonly rounds: Readonly<Record<string, number>>) {}
   intern(w: Weapon): number {
     const key = (x: Weapon) => JSON.stringify(x);
     const k = key(w);
@@ -1270,9 +1382,15 @@ function radiiOf(models: ModelsArtifact, spots: number, mapId: string) {
 }
 
 /**
- * Every role's reference height, metres: its box-0 centre y, which the
- * original adds to the position unshifted (`math_matrix_place_point`
- * 0x00458850: the box's 1/512 units as world units), so raw / 8192.
+ * Every role's reference height, metres: its box-0 centre y placed through the
+ * orientation (`math_matrix_place_point` 0x00458850: `(M * src) >> 12` with M in
+ * 16.16, so a box halfword is 16 world units -- raw / 512 m, the radius's own
+ * unit). A turret's gun stands on its base's attach point 0 (turret.c 914-917),
+ * so its point is that point's height plus the gun's centre (sim.ts turretPitch
+ * reads it whole); every unit's position is its model's origin (the tank's
+ * the route cursor's height since SIM_VERSION 114; until then it stood on the
+ * ground and this added the drawing's lift). (Until SIM_VERSION 109 this read
+ * raw / 8192, the halfword taken as one world unit.)
  */
 function refHeightsOf(models: ModelsArtifact, spots: number, mapId: string) {
   const r = models.refs;
@@ -1281,19 +1399,97 @@ function refHeightsOf(models: ModelsArtifact, spots: number, mapId: string) {
       `${mapId}: ${r.neutral.length} neutral reference heights for ${spots} turret spots`,
     );
   }
-  const m = (raw: number) => raw / WU_PER_METRE;
+  const sh = models.shapes;
+  if (sh.neutral.length !== spots) {
+    throw new Error(`${mapId}: ${sh.neutral.length} neutral shapes for ${spots} turret spots`);
+  }
+  const m = (raw: number) => raw / RADIUS_UNIT;
   return {
     walker: m(r.x1.walker),
     hover: m(r.x1.hover),
-    tank: m(r.tank),
+    // A tank's position is its model's origin since SIM_VERSION 114, the route
+    // cursor's own height (route.ts), as an aircraft's is.
+    tank: round4(m(r.tank)),
     jet: m(r.jet),
     fortress: m(r.fortress),
     dreadnought: m(r.dreadnought),
     ...(r.dreadnoughtByFrame ? { dreadnoughtByFrame: r.dreadnoughtByFrame.map(m) } : {}),
-    baseTurret: m(r.baseTurret),
-    neutral: r.neutral.map(m),
+    baseTurret: round4(sh.baseTurret.point[1] + m(r.baseTurret)),
+    neutral: r.neutral.map((v, k) => round4(sh.neutral[k].point[1] + m(v))),
     skyCaptain: r.skyCaptain.map(m),
   };
+}
+
+/**
+ * Every body's and round's 3DBB table (sim map.ts MapShapes, fcop-fidelity.md
+ * G1): the colliders `cact_pair_test` 0x00450190 tests, carried from the
+ * arena's models as they are (raw halfwords, the model's own axes); the
+ * neutral list must be the turret spots, in order.
+ */
+function shapesOf(models: ModelsArtifact, spots: number, mapId: string): MapJson["shapes"] {
+  const sh = models.shapes;
+  if (sh.neutral.length !== spots) {
+    throw new Error(`${mapId}: ${sh.neutral.length} neutral shapes for ${spots} turret spots`);
+  }
+  const turret = (t: (typeof sh.neutral)[number]) => ({
+    gun: t.gun,
+    base: t.base,
+    point: [...t.point],
+  });
+  // Where the sim's position stands from the model's origin. A ground unit's
+  // height is the ground under it, and the client stands it there by its
+  // drawing's lift: its model's origin is that high (the horizontal centring
+  // is the drawing's alone -- the sim's x, y are the actor's own). An
+  // aircraft's height is its model's origin since SIM_VERSION 110 (the
+  // altitude floor adds its half height, 0x00420a31): no lift.
+  // And each unit's points 0 and 1, its muzzles (glb frame), where it has them.
+  const muzzle = (u: (typeof sh.skyCaptain)[number]) =>
+    u.muzzles.length === 0 ? {} : { muzzles: u.muzzles.map((m) => [...m]) };
+  const ground = (u: (typeof sh.skyCaptain)[number]) => ({
+    table: u.table,
+    lift: [0, u.lift[1], 0],
+    ...muzzle(u),
+  });
+  const air = (u: (typeof sh.skyCaptain)[number]) => ({
+    table: u.table,
+    lift: [0, 0, 0],
+    ...muzzle(u),
+  });
+  return {
+    tables: sh.tables.map((t) => ({
+      cobj: t.cobj,
+      perFrame: t.perFrame,
+      frames: t.frames,
+      boxes: t.boxes.map((b) => [...b]),
+    })),
+    tank: ground(sh.tank),
+    jet: air(sh.jet),
+    fortress: air(sh.fortress),
+    dreadnought: sh.dreadnought,
+    dreadnoughtGuns: [...sh.dreadnoughtGuns],
+    baseTurret: turret(sh.baseTurret),
+    neutral: sh.neutral.map(turret),
+    skyCaptain: sh.skyCaptain.map(air),
+    worldRounds: { ...sh.worldRounds },
+    playerRounds: { ...sh.playerRounds },
+  };
+}
+
+/**
+ * Each turret's gun (fcop-fidelity.md G12): its base's point 0's height, where
+ * the gun stands, and its muzzle, the gun model's point 0 (gen:pamodels
+ * `turrets`), a neutral per turret spot in the radii's order.
+ */
+function turretGunsOf(models: ModelsArtifact, spots: number, mapId: string) {
+  const t = models.turrets;
+  if (t.neutral.length !== spots) {
+    throw new Error(`${mapId}: ${t.neutral.length} neutral turret guns for ${spots} turret spots`);
+  }
+  const gun = (g: ModelsArtifact["turrets"]["baseTurret"]) => ({
+    stand: g.stand[1],
+    muzzle: [g.muzzle[0], g.muzzle[1], g.muzzle[2]],
+  });
+  return { baseTurret: gun(t.baseTurret), neutral: t.neutral.map(gun) };
 }
 
 /** The record's gun count, which must be the hull's mount count. */
@@ -1306,6 +1502,7 @@ function shooterWeapon(
   sh: Shooter,
   turnSpeed: number,
   opts: { arc: boolean; hold: boolean; priority: boolean },
+  rounds: Readonly<Record<string, number>>,
 ): Weapon {
   const w = WORLD_WEAPONS[sh.weaponId];
   if (w === undefined) {
@@ -1333,17 +1530,23 @@ function shooterWeapon(
     arcCos: opts.arc ? SHOOTER_FRONT_ARC_COS : -1,
     hold: opts.hold ? 1 : 0,
     priority: opts.priority ? 1 : 0,
+    ...(((sh.bitfield ?? 0) & SHOOTER_ALTERNATE) !== 0 ? { alternate: 1 } : {}),
+    round: rounds[String(sh.weaponId)] ?? -1,
   };
 }
+
+/** CACT_SHOOTER_ALTERNATE: the muzzle index flips every round (`cact_shooter_step` 0x0044e673). */
+const SHOOTER_ALTERNATE = 0x20;
 
 /** A team (type 8) turret holds its target and prefers priority; a neutral (36) does neither. */
 function turretWeapon(t: Turret, table: WeaponTable, team: boolean): number {
   return table.intern(
-    shooterWeapon(t.shooter, round4(turnSpeedToRadPerTick(t.turnSpeedRaw, TICK_HZ)), {
-      arc: true,
-      hold: team,
-      priority: team,
-    }),
+    shooterWeapon(
+      t.shooter,
+      round4(turnSpeedToRadPerTick(t.turnSpeedRaw, TICK_HZ)),
+      { arc: true, hold: team, priority: team },
+      table.rounds,
+    ),
   );
 }
 
@@ -1367,7 +1570,7 @@ function unitProfiles(
     return {
       hp: u.health,
       weapon: table.intern(
-        shooterWeapon(u.shooter, 0, { arc: false, hold: false, priority: false }),
+        shooterWeapon(u.shooter, 0, { arc: false, hold: false, priority: false }, table.rounds),
       ),
     };
   };
@@ -1395,10 +1598,47 @@ function unitProfiles(
 
 interface Graph {
   nodes: { x: number; z: number; layer: number }[];
+  /** Per node, its links in the engine's order (engineLinkOrder). */
   edges: number[][];
   nextHopA: number[][];
   nextHopB: number[][];
   entry: number[];
+  /** Per node, its height in node units (cnetNodeHeight). */
+  heights: number[];
+  /** The nodes whose state carries the script bit, ascending. */
+  closed: number[];
+  /** The merged index of each imported net's node 0. */
+  netStart: number[];
+}
+
+/**
+ * A node's links in the order the step chooser considers them
+ * (`cnet_route_next` 0x00440f70, 0x0044104c..0x00441077): the first word's
+ * bits 22-31, 12-21 and 2-11, then the second word's bits 6-15. The RE's
+ * extractor (`extract_logic.py` parse_net) lists the first word's fields from
+ * the bottom up, skipping empty ones, then the second word's. In every node of
+ * the six Precinct Assault arenas' Cnets (2,618, read from the shipped
+ * containers' node words) the links fill the fields from the engine's first
+ * without a gap — 2,346 nodes one link, 262 two, 9 three, Hk's one node four —
+ * so the engine's order is the first word's run reversed, then the rest.
+ */
+export function engineLinkOrder(neighbours: readonly number[]): number[] {
+  const links = neighbours.filter((v) => v >= 0);
+  const first = links.slice(0, 3).reverse();
+  const out = [...first, ...links.slice(3)];
+  while (out.length < 4) out.push(-1);
+  return out;
+}
+
+/**
+ * A node's height as `cnet_load` (0x00441900) stores it at node +8, node units:
+ * `(terrain_height_at + 0x7f) >> 8` over the shipped plates by the node's
+ * height mode, which gen:palogic carries as `groundY` (metres, to 1e-4, so
+ * world units come back exact); a node over no plate stands at 0.
+ */
+export function cnetNodeHeight(groundY: number | null): number {
+  const wu = groundY === null ? 0 : Math.round(groundY * 8192);
+  return (wu + 0x7f) >> 8;
 }
 
 /**
@@ -1430,22 +1670,29 @@ function buildGraph(
 ): Graph {
   const nodes: { x: number; z: number; layer: number }[] = [];
   const edges: number[][] = [];
+  const heights: number[] = [];
+  const closed: number[] = [];
+  const netStart: number[] = [];
   const offsetOf = new Map<number, number>();
 
   for (const net of ownedNets(logic, teamNet)) {
     offsetOf.set(net.netId, nodes.length);
     const base = nodes.length;
+    netStart.push(base);
     for (const n of net.nodes) {
       const x = round4(sx(n.x));
       const z = round4(sz(n.z));
+      // The script bit, bit 1 of the node's state (CNET_NODE_STATE_SCRIPT).
+      if ((n.state & 2) !== 0) closed.push(nodes.length);
       nodes.push({
         x,
         z,
         layer: layerAtHeight(terrain, x, z, n.groundY),
       });
+      heights.push(cnetNodeHeight(n.groundY));
     }
     for (const n of net.nodes) {
-      edges.push(n.neighbours.map((nb) => (nb < 0 ? -1 : base + nb)));
+      edges.push(engineLinkOrder(n.neighbours).map((nb) => (nb < 0 ? -1 : base + nb)));
     }
   }
 
@@ -1522,7 +1769,7 @@ function buildGraph(
     }
   }
 
-  return { nodes, edges, nextHopA, nextHopB, entry };
+  return { nodes, edges, nextHopA, nextHopB, entry, heights, closed, netStart };
 }
 
 /** Walks the committed signposts into a plain polyline, for `lanes`. */
@@ -2108,7 +2355,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     { x: gates[0].x, z: gates[0].y },
   ];
 
-  const table = new WeaponTable();
+  const table = new WeaponTable(models.shapes.worldRounds);
   // A turret record as the map carries it: its own shooter, on the surface its
   // base part's selector names (turret_part 0x0041cff1).
   const turretJson = (t: Turret, tbl: WeaponTable) => {
@@ -2243,7 +2490,7 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
         hp: base.health,
         guns: gunsOnMounts(base.gunCount, mounts.mounts.length, mapId),
         weapon: table.intern(
-          shooterWeapon(base.gun, 0, { arc: true, hold: false, priority: false }),
+          shooterWeapon(base.gun, 0, { arc: true, hold: false, priority: false }, table.rounds),
         ),
         mounts: mounts.mounts,
         gunTurn: mounts.turn,
@@ -2253,6 +2500,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       ...unitProfiles(logic, base.team, table),
       ...heavyOf(rules, team, teamOfSlot, coreX, coreY, surf),
       ...baseQueuesOf(rules, slotOfTeam(team), surf),
+      // The jet and Fortress spawner records' flight (fcop-fidelity.md U4).
+      ...baseFlightOf(rules, logic, models, slotOfTeam(team)),
     };
   });
 
@@ -2328,6 +2577,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     tankPad: spotJson(pads[k].tank),
     jetPad: spotJson(pads[k].jet),
     ...outpostQueuesOf(rules, o.index, [slotOfTeam(0), slotOfTeam(1)], pads[k].tank, surf),
+    // Per team, its jet spawner record's flight (fcop-fidelity.md U4).
+    jetFlight: [slotOfTeam(0), slotOfTeam(1)].map((slot) => {
+      const shop = rules.outpostShop.find((q) => q.outpost === o.index && q.slot === slot);
+      if (!shop) throw new Error(`${mapId}: outpost ${o.index} has no shop for slot ${slot}`);
+      return flightOf(logic, shop.jetTemplate, models.halves.jet, `${mapId} outpost ${o.index}`);
+    }),
     plates: o.plates.map((plate) => {
       const neutral = plate.records.filter((r) => r.type === 36);
       if (neutral.length !== 1 || !neutralIndex.has(neutral[0].id)) {
@@ -2678,12 +2933,28 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     radii: radiiOf(models, turretSpots.length, mapId),
     // Every body's reference point over its position (fcop-fidelity.md W5).
     refHeights: refHeightsOf(models, turretSpots.length, mapId),
+    // Each turret's gun on its base and its muzzle (fcop-fidelity.md G12).
+    turretGuns: turretGunsOf(models, turretSpots.length, mapId),
+    // The Sky Captain's record per level: its flight, its model's half height
+    // (fcop-fidelity.md U3, U4).
+    skyFlight: models.skyCaptainTemplates.map((t, level) =>
+      flightOf(logic, t, models.halves.skyCaptain[level], `${mapId} Sky Captain level ${level}`),
+    ),
+    // Its missile's catalogue acceleration, raw (entry 8's +0x14; U3).
+    skyMissileAccel: skyMissileAccelOf(logic, mapId),
+    // Every body's and round's hit boxes, the same models (fcop-fidelity.md G1).
+    shapes: shapesOf(models, turretSpots.length, mapId),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,
       nextHopA: graph.nextHopA,
       nextHopB: graph.nextHopB,
       entry: graph.entry,
+      heights: graph.heights,
+      closed: graph.closed,
+      netStart: graph.netStart,
+      // The tanks' and the Dreadnoughts' route blocks (fcop-fidelity.md U1, I6).
+      routes: routesOf(logic, mapId),
     },
     pickups,
     triggerVolumes,

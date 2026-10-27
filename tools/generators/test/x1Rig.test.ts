@@ -8,13 +8,17 @@
 // frame, the guns on the cockpit's records 2 and 4, the beacon on its point 2;
 // and the RE's walker and hover keep only the faces the partner's layer masks
 // let through in that form (RE x1-alpha.md "Draw modes and layers"), which
-// must be the faces the rig's masks show.
+// must be the faces the rig's masks show. And the lighting: every vertex
+// carries its face's `_FCOP_LIGHT`, and its NORMAL posed as the vertex is
+// (render/x1Pose.ts poseX1Normal, the shader's mirror) is the RE assembly's
+// normal through its own skin, so the shade is taken against the normal the
+// original turns through each bone (fcop-fidelity.md G13).
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Node, NodeIO } from "@gltf-transform/core";
-import { poseX1Vertex } from "../../../packages/client/src/render/x1Pose";
+import { poseX1Normal, poseX1Vertex } from "../../../packages/client/src/render/x1Pose";
 import {
   X1_ANIM_HEIGHT,
   X1_ANIM_WIDTH,
@@ -62,11 +66,19 @@ const rig = await (async () => {
     for (let i = 0; i < (p.getAttribute("POSITION")?.getCount() ?? 0); i++) mode.push(m);
   }
   const bin = readFileSync(X1_OUT_BIN);
+  const light: number[] = [];
+  for (const p of prims) {
+    const a = p.getAttribute("_FCOP_LIGHT");
+    if (!a) throw new Error("avatar-x1.glb has no _FCOP_LIGHT");
+    light.push(...(a.getArray() as Uint8Array));
+  }
   return {
     prims: prims.map(
       (p) => (p.getMaterial()?.getExtras() as { fcop?: { mode?: string } } | undefined)?.fcop,
     ),
     position: attr("POSITION"),
+    normal: attr("NORMAL"),
+    light: Uint8Array.from(light),
     slot: attr("_X1BONE"),
     face: attr("_X1FACE"),
     team: attr("_TEAMUV"),
@@ -101,7 +113,13 @@ const keyOf = (part: string, mode: string, layer: number) => `${part}/${mode}/${
  * primitive's draw mode and layer: the static walker and hover, or sample
  * `sample` of the transform glb's `transform_to_hover` clip.
  */
-async function assembled(path: string, sample = -1): Promise<Map<string, Float32Array>> {
+async function assembled(
+  path: string,
+  sample = -1,
+  what: "POSITION" | "NORMAL" = "POSITION",
+): Promise<Map<string, Float32Array>> {
+  // A normal through the same matrices, their 3x3 alone.
+  const w = what === "NORMAL" ? 0 : 1;
   const doc = await io.read(path);
   const out = new Map<string, Float32Array>();
   const keyed = new Map<Node, { t?: ArrayLike<number>; r?: ArrayLike<number> }>();
@@ -167,15 +185,15 @@ async function assembled(path: string, sample = -1): Promise<Map<string, Float32
     o: Float32Array,
     at: number,
   ) => {
-    o[at] = m[0] * x + m[4] * y + m[8] * z + m[12];
-    o[at + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
-    o[at + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    o[at] = m[0] * x + m[4] * y + m[8] * z + m[12] * w;
+    o[at + 1] = m[1] * x + m[5] * y + m[9] * z + m[13] * w;
+    o[at + 2] = m[2] * x + m[6] * y + m[10] * z + m[14] * w;
   };
   for (const node of doc.getRoot().listNodes()) {
     const mesh = node.getMesh();
     if (!mesh) continue;
     for (const prim of mesh.listPrimitives()) {
-      const pos = prim.getAttribute("POSITION");
+      const pos = prim.getAttribute(what);
       if (!pos) continue;
       const fcop = (
         prim.getMaterial()?.getExtras() as { fcop?: { mode?: string; layer?: number } } | undefined
@@ -237,23 +255,26 @@ async function expectPose(
   cockpitFrame: number,
   form: number,
   sample = -1,
+  what: "POSITION" | "NORMAL" = "POSITION",
 ): Promise<void> {
-  const ref = await assembled(path, sample);
+  const ref = await assembled(path, sample, what);
+  const pose = what === "NORMAL" ? poseX1Normal : poseX1Vertex;
+  const source = what === "NORMAL" ? rig.normal : rig.position;
   const posed = new Float32Array(3);
   const mine = new Map<string, number[]>();
   for (let at = 0; at < rig.slot.length; at++) {
     const part = partOf(rig.slot[at]);
     const key = keyOf(part, rig.mode[at], rig.layer[at]);
-    poseX1Vertex(
+    pose(
       rig.table,
       rig.slot[at],
       legsFrame,
       cockpitFrame,
       0,
       0,
-      rig.position[at * 3],
-      rig.position[at * 3 + 1],
-      rig.position[at * 3 + 2],
+      source[at * 3],
+      source[at * 3 + 1],
+      source[at * 3 + 2],
       posed,
       0,
     );
@@ -322,6 +343,23 @@ describe("the X1's rig", () => {
     // keeps every face, as the ramp's masks show every one.
     const file = join(X1_RAW_DIR, "x1_alpha_transform.glb");
     for (const i of [0, 7, 14, 21, 29]) await expectPose(file, 330 + i, i, X1_FORM_RAMP, i);
+  });
+
+  test("lights every face by its own material, posed normals and all", async () => {
+    // The legs, the cockpit and the guns are smooth grey (material 4) at 0x80,
+    // the beacon plain grey (0) at 0x99 / 0xff (RE x1_tracks_check step 6).
+    const byMaterial = new Map<string, number>();
+    for (let i = 0; i < rig.slot.length; i++) {
+      const l = rig.light.subarray(i * 4, i * 4 + 4);
+      const beacon = rig.slot[i] === X1_SLOTS - 1;
+      if (beacon) expect(l[0] === 0 && (l[1] === 0x99 || l[1] === 0xff)).toBe(true);
+      else expect([...l]).toEqual([4, 0x80, 0x80, 0x80]);
+      const k = `${l[0]}`;
+      byMaterial.set(k, (byMaterial.get(k) ?? 0) + 1);
+    }
+    expect(Object.fromEntries(byMaterial)).toEqual({ "4": rig.slot.length - 78, "0": 78 });
+    await expectPose(join(X1_RAW_DIR, "x1_alpha.glb"), 0, 0, X1_FORM_WALKER, -1, "NORMAL");
+    await expectPose(join(X1_RAW_DIR, "x1_alpha_hover.glb"), 359, 29, X1_FORM_HOVER, -1, "NORMAL");
   });
 
   test("names every triangle's face: a quad's two halves one after the other", () => {

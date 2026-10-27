@@ -1,6 +1,6 @@
 // Node harness for x1Alloc.test.ts (bundled by the test, run under
 // `node --expose-gc`): the X1's per-tick and per-frame paths -- tickX1Walk and
-// aimX1 once a tick, the rig's placeX1 once a frame -- run through a recorded
+// the rig's placeX1 once a frame -- run through a recorded
 // match (stand, walk, run, turn, the crouch, the three jumps and their
 // landings, the transform both ways, the hover, the idle fidget) and report
 // how much the JS heap grew while they did. V8's heapUsed counts a
@@ -9,6 +9,8 @@
 // paths shows up.
 
 import {
+  AVATAR_SNAP_AIM_PITCH,
+  AVATAR_SNAP_AIM_YAW,
   AVATAR_SNAPSHOT_LEN,
   BTN_ACTION,
   BTN_FORWARD,
@@ -23,10 +25,10 @@ import {
   writeAvatarSnapshot,
 } from "@metropolis/sim";
 import * as THREE from "three";
-import { buildX1Rig, placeX1 } from "../src/render/avatarRig";
+import { buildX1Rig, markX1Hit, placeX1 } from "../src/render/avatarRig";
 import { patchTeamUv, prepareTeamUvMask } from "../src/render/teamUv";
 import { X1_ANIM_HEIGHT, X1_ANIM_WIDTH } from "../src/render/x1Rig.generated";
-import { aimX1, createX1Walk, tickX1Walk, x1DrawForm } from "../src/render/x1Walk";
+import { createX1Walk, tickX1Walk, x1DrawForm } from "../src/render/x1Walk";
 
 const gc = (globalThis as { gc?: () => void }).gc;
 if (!gc) throw new Error("run with --expose-gc");
@@ -89,8 +91,10 @@ const snap = new Float32Array(AVATAR_SNAPSHOT_LEN);
 function tick(t: number): void {
   const o = (t % scriptLength) * AVATAR_SNAPSHOT_LEN;
   for (let k = 0; k < AVATAR_SNAPSHOT_LEN; k++) snap[k] = frames[o + k];
+  // The cockpit's aim off the snapshot, moving (it is the sim's).
+  snap[AVATAR_SNAP_AIM_YAW] = (t & 64) !== 0 ? 0x18 * (t & 7) : 0;
+  snap[AVATAR_SNAP_AIM_PITCH] = (t & 64) !== 0 ? -0x18 * (t & 3) : 0;
   tickX1Walk(walk, snap);
-  aimX1(walk, 0, (t & 64) !== 0, 3, 1, 0.5, 0.2);
 }
 
 function frame(t: number): void {
@@ -110,6 +114,8 @@ function frame(t: number): void {
       (t & 128) !== 0 ? (t >> 2) & 63 : -1,
       x1DrawForm(walk, 0),
     );
+    // The damaged flag, on and off as a fight sets it (render/damaged.ts).
+    markX1Hit(core, s, (t & 96) === 32);
   }
 }
 

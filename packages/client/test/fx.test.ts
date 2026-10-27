@@ -7,6 +7,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   createEventBuffer,
+  EV_GUN_ARC,
   EV_SHIELD_ARC,
   EV_SHIELD_ARC_STEP,
   EV_SHOT,
@@ -332,6 +333,37 @@ describe("the Riot Shield's arcs (sustain_sphere.c)", () => {
     // Without a sphere (radius 0) a step draws nothing.
     pushEvent(events, EV_SHIELD_ARC_STEP, 2, packArcAngles(0, 0), packArcAngles(0x100, 0));
     fx.pump(events, atOrigin);
+    expect(fx.debugCounts().links).toBe(2);
+  });
+});
+
+describe("the Electric Gun's jump (EV_GUN_ARC, `player_arc` 0x00459bd0)", () => {
+  test("each jump lays one link between two live bodies, with or without the gun's record", () => {
+    const scene = new THREE.Scene();
+    const chain = new EffectChain();
+    chain.begin(fxArenaFor("Mp"));
+    const poses = createFxPoses();
+    let asked = 0;
+    const fx = createFx(scene, chain, {
+      poses,
+      launchRecord: () => {
+        asked++;
+        return asked > 1 ? chain.record(1, 50) : undefined;
+      },
+    });
+    fx.begin("la-cantina");
+    for (const id of [1, 2, 3]) {
+      poses.table.set([id, 0, id, 0], id * POSE_STRIDE);
+      poses.live[id] = 1;
+    }
+    const events = createEventBuffer();
+    const payload = weaponShotPayload(9, 0, true);
+    pushEvent(events, EV_GUN_ARC, 1, 2, payload);
+    pushEvent(events, EV_GUN_ARC, 1, 3, payload);
+    // A body gone from the frame draws nothing.
+    pushEvent(events, EV_GUN_ARC, 1, 4, payload);
+    fx.pump(events, atOrigin);
+    expect(asked).toBe(2);
     expect(fx.debugCounts().links).toBe(2);
   });
 });

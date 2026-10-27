@@ -147,9 +147,14 @@ const PASSES: readonly ModelPass[] = [
     centreXZ: true,
     groundY: true,
   })),
-  // Each arena's own units (fcop-fidelity.md G1). A `part` keeps the raw's
-  // origin and bounds: the gun stands on the base's attach point, the
-  // Dreadnought's guns on the hull's, and both turn about their own origin.
+  // Each arena's own units (fcop-fidelity.md G1), every one at the raw's own
+  // origin: a `part` because the gun stands on the base's attach point, the
+  // Dreadnought's guns on the hull's, and both turn about their own origin; a
+  // `unit` (the tank, the jet, the Flying Fortress, the Sky Captain) because the
+  // sim's position is its model's origin -- the route cursor's height for a
+  // tank, the flight's for an aircraft -- and its matrix turns it about that
+  // origin (sim orient.ts). Until the tilt follow-up a `unit` was grounded and
+  // XZ-centred, which stood it off the sim's position by its bounds.
   ...ARENA_UNIT_MODELS.map((spec) => ({
     key: spec.file.slice(spec.file.indexOf("/") + 1),
     label: spec.file,
@@ -159,8 +164,8 @@ const PASSES: readonly ModelPass[] = [
     maxTris: spec.maxTris,
     nativeScale: true,
     neutralizeColors: false,
-    centreXZ: spec.treatment !== "part",
-    groundY: spec.treatment !== "part",
+    centreXZ: false,
+    groundY: false,
     keepMorph: spec.morph?.source,
     morphFrames: spec.morph?.frames,
   })),

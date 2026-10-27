@@ -3,7 +3,7 @@
   "mapId": "proving-ground",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "44fd3cc06234fed356bee3da3162d45bb88cf296",
+    "commit": "26b7bdad5bf53761caac1126c4c2368a8e7b5c7f",
     "extractor": "tools/gfx/extract_logic.py"
   },
   "frame": {
@@ -55,7 +55,11 @@
         "targetingDelayRaw": 16
       },
       "moveSpeed": 1024,
-      "acceleration": 1228
+      "acceleration": 1228,
+      "route": {
+        "flags": 8,
+        "heightBias": 204
+      }
     },
     {
       "id": 23,
@@ -76,7 +80,11 @@
         "targetingDelayRaw": 16
       },
       "moveSpeed": 1024,
-      "acceleration": 1228
+      "acceleration": 1228,
+      "route": {
+        "flags": 8,
+        "heightBias": 204
+      }
     }
   ],
   "turrets": [
@@ -1750,10 +1758,15 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     },
     {
       "id": 77,
@@ -1770,10 +1783,15 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     },
     {
       "id": 87,
@@ -1790,10 +1808,15 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     },
     {
       "id": 144,
@@ -1810,10 +1833,15 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     },
     {
       "id": 154,
@@ -1830,10 +1858,15 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     },
     {
       "id": 172,
@@ -1850,10 +1883,15 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     },
     {
       "id": 173,
@@ -1870,10 +1908,15 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     },
     {
       "id": 185,
@@ -1890,10 +1933,15 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     },
     {
       "id": 204,
@@ -1910,10 +1958,15 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     },
     {
       "id": 205,
@@ -1930,10 +1983,15 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 512
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 307
+      }
     }
   ],
   "aircraft": [
@@ -1955,10 +2013,17 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 16
+        "targetingDelayRaw": 16,
+        "bitfield": 544
       },
       "spawnTicks": 300,
-      "groundY": 0
+      "groundY": 0,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 24,
@@ -1978,10 +2043,17 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 16
+        "targetingDelayRaw": 16,
+        "bitfield": 544
       },
       "spawnTicks": 300,
-      "groundY": -0.8735
+      "groundY": -0.8735,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 33,
@@ -2001,10 +2073,17 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": 0
+      "groundY": 0,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 12
+      }
     },
     {
       "id": 34,
@@ -2024,10 +2103,17 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": 0
+      "groundY": 0,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 12
+      }
     },
     {
       "id": 91,
@@ -2047,10 +2133,17 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": 1
+      "groundY": 1,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 99,
@@ -2070,10 +2163,17 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": 1
+      "groundY": 1,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 145,
@@ -2093,10 +2193,17 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": -2
+      "groundY": -2,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 0
+      }
     },
     {
       "id": 155,
@@ -2116,10 +2223,17 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": -2
+      "groundY": -2,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 0
+      }
     },
     {
       "id": 174,
@@ -2139,10 +2253,17 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": 0
+      "groundY": 0,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 175,
@@ -2162,10 +2283,17 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": 0
+      "groundY": 0,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 206,
@@ -2185,10 +2313,17 @@
         "targeting": 2,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": 0
+      "groundY": 0,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 207,
@@ -2208,10 +2343,93 @@
         "targeting": 1,
         "fovRaw": 4096,
         "engageRangeRaw": 6144,
-        "targetingDelayRaw": 32
+        "targetingDelayRaw": 32,
+        "bitfield": 514
       },
       "spawnTicks": 300,
-      "groundY": 0
+      "groundY": 0,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
+    }
+  ],
+  "skyCaptains": [
+    {
+      "id": 164,
+      "flight": {
+        "altMin": 614,
+        "altCruise": 655,
+        "altMax": 716,
+        "spawn": 12
+      }
+    },
+    {
+      "id": 347,
+      "flight": {
+        "altMin": 614,
+        "altCruise": 655,
+        "altMax": 716,
+        "spawn": 12
+      }
+    },
+    {
+      "id": 348,
+      "flight": {
+        "altMin": 675,
+        "altCruise": 716,
+        "altMax": 757,
+        "spawn": 12
+      }
+    },
+    {
+      "id": 349,
+      "flight": {
+        "altMin": 675,
+        "altCruise": 716,
+        "altMax": 757,
+        "spawn": 12
+      }
+    }
+  ],
+  "catalogue": [
+    {
+      "key": 1,
+      "accelRaw": 0
+    },
+    {
+      "key": 2,
+      "accelRaw": 0
+    },
+    {
+      "key": 3,
+      "accelRaw": 0
+    },
+    {
+      "key": 4,
+      "accelRaw": 0
+    },
+    {
+      "key": 5,
+      "accelRaw": 0
+    },
+    {
+      "key": 6,
+      "accelRaw": 0
+    },
+    {
+      "key": 7,
+      "accelRaw": 0
+    },
+    {
+      "key": 8,
+      "accelRaw": 122
+    },
+    {
+      "key": 9,
+      "accelRaw": 0
     }
   ],
   "props": [

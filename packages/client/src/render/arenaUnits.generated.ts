@@ -20,9 +20,10 @@ export type SideUv = readonly [TexelUv, TexelUv, TexelUv];
 export type ModelPoint = readonly [number, number, number];
 
 /**
- * How gen:units builds the file: a `unit` is grounded and XZ-centred; a
- * `part` keeps the original's origin, which is what its attach points and its
- * pivot are measured from.
+ * The role's kind: a `unit` (tank, jet, Flying Fortress, Sky Captain) drops
+ * its FX attachments; a `part` is placed by attach points and turns about its
+ * own origin. gen:units keeps the original's origin for both: a part's attach
+ * points and pivot are measured from it, and a unit's is the sim's position.
  */
 export type UnitTreatment = "unit" | "part";
 

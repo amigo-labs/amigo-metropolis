@@ -341,10 +341,109 @@ interface ArenaOut {
   staticMarkers: { record: string; marker: number; x: number; y: number }[];
   claimMarkers: { record: string; x: number; y: number; markers: [number, number] }[];
   boxes: Record<number, Box[]>;
+  unitBoxes: UnitBoxes;
 }
 
 /** A 3DBB box as the arrow reads it: centre x and z, half x and z, metres. */
 type Box = [number, number, number, number];
+/** An entity's arrow box and the window test's reach (`radius_68`), world units (1/8192 m). */
+type ReachBox = [number, number, number, number, number];
+
+/**
+ * The boxes the map screen builds the entities' arrows on (pause_map_draw_actor
+ * 0x004516e0): box 0 of the actor's model (+0x28) by frame (one where every
+ * frame's is alike) and its reach `radius_68`, the box's +0x0c
+ * shifted left four (`cact_model_select` 0x004297e0). A turret's model is its
+ * gun (aRSL entry 0); the Dreadnought's its hull. The X1-Alphas' are the
+ * view's shape block (`player_transform_shape` 0x00441cf0) over the legs' box
+ * at the walker's frame 0 and progress 0, and the hover's frame 359 at 0x10000.
+ */
+interface UnitBoxes {
+  avatar: [ReachBox, ReachBox];
+  tank: ReachBox[];
+  jet: ReachBox[];
+  fortress: ReachBox[];
+  dreadnought: ReachBox[];
+  turret: ReachBox[];
+  neutralTurret: ReachBox[][];
+  captain: { levels: number[]; box: ReachBox[] }[];
+}
+
+interface PaRole {
+  parts: { part: string; arsl_entry: number; cobj: number }[];
+  levels?: number[];
+}
+
+/** `math_sqrt_16_16`: floor(sqrt(v << 16)). */
+function sqrt1616(v: number): number {
+  return Math.floor(Math.sqrt(v * 65536));
+}
+
+/**
+ * `player_transform_shape` (0x00441cf0) at `progress` over a legs box
+ * [cx, cy, cz, hx, hy, hz, ...] (raw halfwords): the footprint's centre and
+ * halves and the block's radius, as a ReachBox.
+ */
+export function x1ShapeBox(box: readonly number[], progress: number): ReachBox {
+  const cx = box[0];
+  const cz = box[2];
+  const hx = box[3];
+  const hz = box[5];
+  const wideX = hx + (((progress >> 2) * hx) >> 16);
+  const walkZ = cz + ((hz * progress) >> 16);
+  const longZ = (((progress >> 4) + 0x1000) * hz) >> 12;
+  const bandCentre = (-(358 * progress) >> 17) + 0x126;
+  const sum = bandCentre * bandCentre + longZ * longZ + wideX * wideX;
+  const radius = sqrt1616(sum >> 8);
+  return [cx * 16, walkZ * 16, wideX * 16, longZ * 16, radius];
+}
+
+function unitBoxesOf(mission: string): UnitBoxes {
+  const tables = readJson<{ objects: BboxTable[] }>("extracted", "objects", mission, "bboxes.json");
+  const pa = readJson<{ roles: Record<string, PaRole[]> }>(
+    "extracted",
+    "logic",
+    mission,
+    "pa_models.json",
+  );
+  const entry = (cobj: number, frame: number): number[] => {
+    const t = tables.objects.find((o) => o.id === cobj);
+    if (!t || frame >= t.frames) throw new Error(`${mission}: Cobj ${cobj} has no frame ${frame}`);
+    return t.boxes[frame];
+  };
+  /** Box 0 of every frame (entry f is frame f's), one where all are alike. */
+  const single = (cobj: number): ReachBox[] => {
+    const t = tables.objects.find((o) => o.id === cobj);
+    if (!t) throw new Error(`${mission}: no 3DBB table for Cobj ${cobj}`);
+    const frames = t.boxes
+      .slice(0, t.frames)
+      .map((e) => [e[0] * 16, e[2] * 16, e[3] * 16, e[5] * 16, e[6] * 16] as ReachBox);
+    const alike = frames.every((f) => f.every((v, i) => v === frames[0][i]));
+    return alike ? [frames[0]] : frames;
+  };
+  const part = (role: string, name: string, k = 0): number => {
+    const r = pa.roles[role]?.[k];
+    const p = r?.parts.find((q) => q.part === name);
+    if (!p) throw new Error(`${mission}: ${role} has no ${name}`);
+    return p.cobj;
+  };
+  const legs = part("x1alpha", "legs");
+  return {
+    avatar: [x1ShapeBox(entry(legs, 0), 0), x1ShapeBox(entry(legs, 359), 0x10000)],
+    tank: single(part("tank", "body")),
+    jet: single(part("jet", "body")),
+    fortress: single(part("flying_fortress", "body")),
+    dreadnought: single(part("dreadnought", "hull")),
+    turret: single(part("base_turret", "gun")),
+    neutralTurret: (pa.roles.neutral_turret ?? []).map((_, k) =>
+      single(part("neutral_turret", "gun", k)),
+    ),
+    captain: (pa.roles.sky_captain ?? []).map((r, k) => ({
+      levels: r.levels ?? [],
+      box: single(part("sky_captain", "body", k)),
+    })),
+  };
+}
 
 /** One Cobj's 3DBB table (RE tools/gfx/extract_objects.py `bboxes.json`). */
 interface BboxTable {
@@ -505,6 +604,7 @@ FCOP_ARENAS.forEach((arena, reticleIndex) => {
     staticMarkers,
     claimMarkers,
     boxes: modelBoxes(arena.mission, cobjs),
+    unitBoxes: unitBoxesOf(arena.mission),
   };
 });
 
@@ -785,7 +885,30 @@ export interface ArenaPresentation {
    * own frame.
    */
   readonly boxes: Readonly<Record<number, readonly (readonly [number, number, number, number])[]>>;
+  /**
+   * The entities' arrow boxes (pause_map_draw_actor 0x004516e0): box 0 of the
+   * actor's model by frame (one where all are alike) and its reach \`radius_68\`
+   * (the box's +0x0c << 4, 0x004297e0), [centre x, centre z, half x, half z,
+   * reach] world units. A turret's model is its gun, the Dreadnought's its hull,
+   * the captain's by level. The X1-Alphas' are the view's shape block
+   * (player_transform_shape 0x00441cf0) on the legs: [the walker's (frame 0,
+   * progress 0), the hover's (frame 359, 0x10000)]. Absent on a map with no
+   * original.
+   */
+  readonly unitBoxes?: {
+    readonly avatar: readonly [ReachBox, ReachBox];
+    readonly tank: readonly ReachBox[];
+    readonly jet: readonly ReachBox[];
+    readonly fortress: readonly ReachBox[];
+    readonly dreadnought: readonly ReachBox[];
+    readonly turret: readonly ReachBox[];
+    readonly neutralTurret: readonly (readonly ReachBox[])[];
+    readonly captain: readonly { readonly levels: readonly number[]; readonly box: readonly ReachBox[] }[];
+  };
 }
+
+/** [centre x, centre z, half x, half z, reach], world units (1/8192 m). */
+export type ReachBox = readonly [number, number, number, number, number];
 
 export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = ${j(arenas)} as unknown as Readonly<Record<string, ArenaPresentation>>;
 `;

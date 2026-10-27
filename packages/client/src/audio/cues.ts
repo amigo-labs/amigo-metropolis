@@ -56,6 +56,7 @@ import {
   EV_ROUND_IMPACT,
   EV_SHOT,
   EV_SUNK,
+  EV_TOUCH,
   EV_TRANSFORM,
   EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
@@ -369,6 +370,19 @@ export class OriginalSounds implements EffectListener {
     this.started = false;
   }
 
+  /**
+   * The bank-1 record a player shot's block names at +0x1b (`payload` is
+   * EV_SHOT's): the Electric Gun's link record, which its jump (EV_GUN_ARC,
+   * render/fx.ts) draws with. Undefined for none.
+   */
+  launchRecord(payload: number): FxRecord | undefined {
+    const w = weaponById(shotPayloadWeaponId(payload));
+    const rec = w ? this.weapons[w.code] : undefined;
+    if (!rec) return undefined;
+    const blk = shotPayloadPowered(payload) ? rec.b : rec.a;
+    return blk.launchFx > 0 ? this.effects.record(1, blk.launchFx) : undefined;
+  }
+
   /** One tick's events, then the per-tick state the original reads each frame. */
   tick(events: EventBuffer, ctx: CueContext): void {
     const data = this.data;
@@ -487,6 +501,11 @@ export class OriginalSounds implements EffectListener {
         return;
       case EV_DEATH:
         this.death(a, b, c, ctx);
+        return;
+      case EV_TOUCH:
+        // Another actor's touch (operation 0x0b, 0x0041a7eb) clears the high
+        // nibble of +0x19: the death mask the damage messages built.
+        if (a >= 0 && a < MAX_ENTITIES) this.mask[a] = 0;
         return;
       case EV_RESPAWN:
         this.respawn(b, ctx);

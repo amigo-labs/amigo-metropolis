@@ -4,8 +4,15 @@
 // corners the base, placed by the actor's own matrix.
 
 import { describe, expect, test } from "bun:test";
+import { ARCHETYPE, TURRET_CAPTURABLE } from "@metropolis/sim";
 import { ARENA_PRESENTATION } from "../src/render/fcopPresentation.generated";
-import { arrowCorners, boxFrame, clothFrame } from "../src/render/hud/mapOverlay";
+import {
+  arrowCorners,
+  boxFrame,
+  clothFrame,
+  labelPen,
+  unitBox,
+} from "../src/render/hud/mapOverlay";
 
 describe("the arrow (pause_map_draw_actor)", () => {
   const out = new Float64Array(6);
@@ -69,5 +76,62 @@ describe("the box of the current frame (cobj_bbox_frame_box)", () => {
       expect(flag?.length, id).toBe(1);
       expect(flag?.[0], id).toEqual([0, 0.3184, 0.0273, 0.3418]);
     }
+  });
+});
+
+describe('the player\'s "P" (0x00451995..0x00451a0a)', () => {
+  test("four times the arrow's centroid less 8 px, at 640 x 480", () => {
+    const out = new Float64Array(2);
+    // The original: cfnt_text_draw(sum / 6 - 4) in 320 x 240, doubled; the
+    // sum of three vertices in quarter pixels is 12 x the centroid in pixels.
+    const cx = 100;
+    const cy = 60;
+    const sumQ = 3 * 4 * cx;
+    const sumQy = 3 * 4 * cy;
+    labelPen(cx, cy, 1, out);
+    expect(out[0]).toBe(2 * (sumQ / 6 - 4));
+    expect(out[1]).toBe(2 * (sumQy / 6 - 4));
+  });
+
+  test("scaled with the view", () => {
+    const out = new Float64Array(2);
+    labelPen(200, 120, 2, out);
+    expect(out[0]).toBe(784);
+    expect(out[1]).toBe(464);
+  });
+});
+
+describe("the entities' boxes (gen:presentation unitBoxes)", () => {
+  const units = ARENA_PRESENTATION["la-cantina"].unitBoxes;
+
+  test("units stand on box 0 of their model, reach its radius_68 (Mp Cobj 30: 483)", () => {
+    const tank = unitBox(units, ARCHETYPE.RUNNER, 0, false, 0);
+    expect(tank?.[4]).toBe(483 * 16);
+    // Cobj 30's box: centre z 138, halves 268 x 389, 1/512 m, in world units.
+    expect(tank?.slice(0, 4)).toEqual([0, 138 * 16, 268 * 16, 389 * 16]);
+    expect(unitBox(units, ARCHETYPE.TURRET, TURRET_CAPTURABLE, false, 0)).toBe(
+      units?.neutralTurret[0][0],
+    );
+    expect(unitBox(units, ARCHETYPE.TURRET, 0, false, 0)).toBe(units?.turret[0]);
+    expect(unitBox(units, ARCHETYPE.CONSOLE, 0, false, 0)).toBeNull();
+    expect(unitBox(undefined, ARCHETYPE.RUNNER, 0, false, 0)).toBeNull();
+  });
+
+  test("the Sky Captain's box by its level", () => {
+    const low = unitBox(units, ARCHETYPE.WARDEN, 0, false, 1);
+    const high = unitBox(units, ARCHETYPE.WARDEN, 0, false, 9);
+    expect(low).not.toEqual(high);
+  });
+
+  test("an X1's is its view's shape (player_transform_shape 0x00441cf0)", () => {
+    // The walker, progress 0, legs Cobj 15 frame 0: the box's own halves 132 x
+    // 164 and centre z 16; the radius 16 * sqrt(0x126^2 + 164^2 + 132^2) wu.
+    const walker = unitBox(units, ARCHETYPE.AVATAR, 0, false, 0);
+    expect(walker?.slice(0, 4)).toEqual([0, 16 * 16, 132 * 16, 164 * 16]);
+    const r = Math.floor(Math.sqrt(((0x126 * 0x126 + 164 * 164 + 132 * 132) >> 8) * 65536));
+    expect(walker?.[4]).toBe(r);
+    // The hover: half x a quarter wider, half z doubled, the centre a half z on.
+    const hover = unitBox(units, ARCHETYPE.AVATAR, 0, true, 0);
+    expect(hover).not.toEqual(walker);
   });
 });

@@ -221,14 +221,14 @@ Design pillars, in priority order:
   |---|---|
   | Powered Mini-Gun | hitscan on the lock, 1 dmg every tick (30/s), 7500 rounds, 12 m |
   | Gatling Laser | the same, 6250 rounds |
-  | Flamethrower | 6 dmg on the lock, 3750 rounds, 12 m (cadence ours, below) |
+  | Flamethrower | a stream of nodes at the lock, one every 2 ticks, each 6 dmg to every body it reaches (the lock twice), ~6.2 m; a round every tick it is held, 3750 rounds |
   | Electric Gun | 3 dmg on the lock every 2nd tick, 3750 rounds, 9.6 m |
   | Hell Fire 2000 | homing missile, 25 dmg, every 0.5 s, 181 rounds, 1.98 → 15.8 m/s, 16 m |
-  | Concussion Beam | beam to the lock bursting for 50 in 1 m, every 1.0 s, 93 rounds, 8 m |
+  | Concussion Beam | a beam growing from the muzzle at 1.25 m a frame, 50 once a shot to every body near it (ten at most), cut at walls; every 1.0 s, 93 rounds |
   | Hyper Velocity Rocket | 4 lead-aimed rockets on 4 ticks every 1.23 s, 30 dmg, 150 rounds, 2.5 → 19.9 m/s, 16 m |
   | Mortar Launcher | lobbed shell, 200 in a 3.2 m blast, every 2.03 s, 31 rounds, 7.6 m/s under 6 m/s² (reach 9.7 m) |
   | Pop-Up Mines | dropped charge: falls from the muzzle, bounces, and blows where it settles (about 1.4 s); an enemy within 2 m + its radius springs it first (it pops up and blows 1 s later); 600 in a 5.6 m blast, every 1.0 s, 37 |
-  | Shockwave Generator | self-centred pulse, 300 within 6 m, every 3.03 s, 25 |
+  | Shockwave Generator | an expanding shell on the mech out to ~6.4 m, blasting the band it swept every 4th tick: `300 × (outer − d) / outer` a blast; every 3.03 s, 25 |
   The rounds above are NORMAL's: the records hold HARD's magazines, NORMAL adds
   a quarter and EASY a half (truncated, the loader's shifts; SIM_VERSION 72 —
   NORMAL for everyone before), and every slot has a magazine, the Gun's included
@@ -258,22 +258,29 @@ Design pillars, in priority order:
   what they strike.
 - **Declared deviations, none hidden** (each waits on the RE,
   `fcop-re/player-and-weapons.md` §9):
-  1. How the Flamethrower, the Concussion Beam and the Shockwave spread their
-     damage over time was not established. They keep Metropolis' time profile
-     (a flame hit every 5 ticks, an instant beam, an instant flat pulse) with the
-     original's per-hit damage, radius and reach.
+  1. ~~How the Flamethrower, the Concussion Beam and the Shockwave spread their
+     damage~~ **settled** (RE M3-OR, SIM_VERSION 105, `sim/src/sustain.ts`): the
+     original's trails and shells, as `fcop-fidelity.md` W1 tells. Kept: the
+     Shockwave's start radius (0.8 m, the client's scale; the original's could
+     not be established), a body's hit radius standing in for its horizontal
+     half-extent, the wall lattice for the terrain trace.
   2. The homing turn rate (`MISSILE_TURN_RATE`, ours: 180°/s), the Hyper
      Velocity Rocket's exact lead, the powered Hell Fire's split (three missiles
-     fanned at launch, ours) and the powered Mortar's fragment spread (ours).
+     fanned at launch, ours). ~~The powered Mortar's fragment spread (ours)~~
+     **the original's** since SIM_VERSION 109: four fragments, one per quadrant,
+     and the shell itself flies on and goes off where it lands.
   3. ~~Mines: whether an untriggered mine goes off after its 5 s lifetime~~
      **settled** (RE M3-OP, SIM_VERSION 101): it never waits. The dropped round
      goes off the tick it comes to rest, so the arming delay, the 30 s silent
      despawn and the placing at the feet are gone. Kept: the fuse measures the
      ground plane from the body's position (the original: three axes from its
      reference point).
-  4. The powered Electric Gun's arc to two more targets is not modelled.
+  4. ~~The powered Electric Gun's arc to two more targets is not modelled.~~
+     **Modelled** (SIM_VERSION 107, `player_arc` 0x00459bd0): block B jumps from
+     a lock it reached to at most two more enemy bodies inside a 4 m cube about
+     the lock, 6 damage each.
 - **Deliveries:** Pop-Up Mines drop a bouncing proximity charge from the muzzle.
-  Shockwave Generator is a self-centred pulse — no aim, no projectile travel.
+  Shockwave Generator is an expanding shell riding the mech — no aim, no projectile travel.
 - Slot membership: the **Concussion Beam is a Heavy**, not a Special.
 - **No pad refills or repairs a mech** (SIM_VERSION 53; `fcop-fidelity.md` P1,
   R14): the original has no base pad and no outpost refill. Ammo comes back from
@@ -796,7 +803,8 @@ only what Metropolis adopts from it.
     example, the Mini-Gun's 2 damage with a 1 m splash (750 rounds), Hell Fire's
     three homing missiles a shot (18), the Hyper Velocity Rocket's 8-round burst,
     the Mortar's shell bursting into four 100-damage fragments at its apex, the
-    Mines' 1000 in 8 m, the Shockwave's 8 m every 1.0 s. It is lost when the
+    Mines' 1000 in 8 m, the Shockwave's faster, thinner shell every 1.0 s, the
+    Concussion Beam's 100 with a 50-point shell at each body it hits. It is lost when the
     avatar goes down. It replaced Metropolis' x2 damage for 15 s.
 - **Alerts are the original's voice lines** (SIM_VERSION 36, `fcop-fidelity.md`
   R15). The original's mission scripts speak them through ops 0x0c/0x0d

@@ -23,9 +23,10 @@ import {
   createArenaUnits,
   gunMatrix,
   gunPointOf,
+  turretGunQuat,
 } from "../src/render/arenaUnits";
 import { UNIT_MODEL_FILES } from "../src/render/arenaUnits.generated";
-import { lerpGunYaws } from "../src/render/dreadnoughtGuns";
+import { lerpGunYaws, lerpTurretPitch } from "../src/render/dreadnoughtGuns";
 import { createGreyboxMeshes, type GreyboxMeshes } from "../src/render/greybox";
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -204,6 +205,7 @@ describe("the frame path", () => {
       hullQuat,
       one,
       yaws,
+      0,
     );
     units.end();
   }
@@ -323,7 +325,16 @@ describe("the frame path", () => {
 
   test("allocates in none of its source: no new, closure, literal or spread", () => {
     const allocates = /\bnew\b|=>|\bfunction\b|[=(,:?]\s*[[{]|\breturn\s*[[{]|\.\.\./;
-    for (const fn of [lerpGunYaws, gunMatrix, gunPointOf, units.place, units.begin, units.end]) {
+    for (const fn of [
+      lerpGunYaws,
+      lerpTurretPitch,
+      gunMatrix,
+      gunPointOf,
+      turretGunQuat,
+      units.place,
+      units.begin,
+      units.end,
+    ]) {
       const body = fn.toString();
       expect({ fn: fn.name, allocates: allocates.test(body.slice(body.indexOf("{"))) }).toEqual({
         fn: fn.name,
@@ -364,6 +375,7 @@ describe("Joke's guns ride the hull's walk (RE cact_mount_step reads the hull's 
       hullQuat,
       one,
       yaws,
+      0,
     );
     units.end();
   }

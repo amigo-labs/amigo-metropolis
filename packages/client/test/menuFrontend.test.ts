@@ -58,6 +58,7 @@ import {
 import {
   EMPTY_SLOT,
   emptySaveFile,
+  finishedMapEndsSession,
   loadFromSlot,
   parseSaveFile,
   saveToSlot,
@@ -573,5 +574,20 @@ describe("the stage", () => {
   test("a client point to the screen's pixel", () => {
     expect(toScreen(110, 60, 100, 50, 2)).toEqual([5, 5]);
     expect(toScreen(99, 49, 100, 50, 2)).toEqual([-1, -1]);
+  });
+});
+
+describe("frame_step_game 0x004097a8", () => {
+  test("only Bug Hunt, the sixth map, leaves for the front end on another round", () => {
+    expect(finishedMapEndsSession("bug-hunt")).toBe(true);
+    for (const id of [
+      "urban-jungle",
+      "proving-ground",
+      "la-cantina",
+      "hollywood-keys",
+      "venice-beach",
+    ])
+      expect(finishedMapEndsSession(id)).toBe(false);
+    expect(finishedMapEndsSession("layered-test")).toBe(false);
   });
 });

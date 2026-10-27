@@ -54,7 +54,7 @@ import { isLocalhost, type MenuChoice } from "./routing";
 import type { MenuDialog, MenuState } from "./state";
 import { W9MessageBox } from "./win9x/Win9x";
 
-export { recordSoloWin } from "./frontend/progress";
+export { finishedMapEndsSession, recordSoloWin } from "./frontend/progress";
 
 /**
  * frame_step_game's finished arm (0x00409762..0x00409794): the map's

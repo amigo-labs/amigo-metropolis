@@ -34,13 +34,22 @@
 // through the ramp, the cockpit's 6 as a hover and through it. The shader
 // collapses a hidden face onto the model's origin, where it covers no pixel.
 //
+// And the lighting (fcop-fidelity.md G13; RE objects.md "Face lighting"): every
+// vertex carries its face's `_FCOP_LIGHT` (the legs, the cockpit and the guns
+// smooth grey at 0x80, the beacon plain grey), so render/fcopModel.ts draws the
+// X1 as it draws every unit, shaded against the original's one light; the
+// pose chains its normal onto that shade, turned through the same bone and aim
+// as the vertex (x1PoseNormal, render/x1Pose.ts poseX1Normal), as a skeleton
+// turns its 4DNL through each bone (`cact_model_project` 0x004281db).
+//
 // Team colour is the original's texture offset (render/teamUv.ts), kept off the
 // beacon by `_TEAMUV`; while the cloak runs, the offset's v is the frame clock
 // `>> 2 & 0x3f` instead of the side's (player_partner.c 289-293).
 
 import * as THREE from "three";
 import { teamSide, writeX1Uv, x1Uv } from "./arenaUnits";
-import { chainPatch, materialList } from "./fcopModel";
+import { createHitAttribute } from "./damaged";
+import { chainPatch, HIT_ATTRIBUTE, materialList } from "./fcopModel";
 import type { ShatterSkeleton } from "./fx/skeletonShatter";
 import { createTeamUvAttribute, TEAM_UV_ATTR, TEAM_UV_MASK } from "./teamUv";
 import { loadUnitAsset } from "./unitMeshes";
@@ -48,6 +57,7 @@ import {
   X1_ANIM_HEIGHT,
   X1_ANIM_WIDTH,
   X1_ATTACHED_LAYER_MASK,
+  X1_BEAM_POINT,
   X1_COCKPIT_LAYER_MASKS,
   X1_COCKPIT_ROW,
   X1_COCKPIT_SLOT,
@@ -99,7 +109,37 @@ attribute float ${X1_BONE_ATTR};
 attribute float ${X1_LAYER_ATTR};
 attribute vec4 ${X1_POSE_ATTR};
 attribute vec2 ${X1_LAYERS_ATTR};
-uniform highp sampler2D ${X1_ANIM_UNIFORM};`;
+uniform highp sampler2D ${X1_ANIM_UNIFORM};
+// render/x1Pose.ts poseX1Normal: the slot's 3x3 of the frame and, riding the
+// cockpit, the aim's pitch then yaw; no translation, not renormalised.
+vec3 x1PoseNormal( vec3 n ) {
+	int x1Slot = int(${X1_BONE_ATTR} + 0.5);
+	bool x1Rides = x1Slot >= ${X1_COCKPIT_SLOT};
+	int x1Row = x1Rides ? ${X1_COCKPIT_ROW} + int(${X1_POSE_ATTR}.y + 0.5) : int(${X1_POSE_ATTR}.x + 0.5);
+	int x1Texel = (x1Rides ? x1Slot - ${X1_COCKPIT_SLOT} : x1Slot) * 3;
+	vec3 q = vec3(
+		dot(texelFetch(${X1_ANIM_UNIFORM}, ivec2(x1Texel, x1Row), 0).xyz, n),
+		dot(texelFetch(${X1_ANIM_UNIFORM}, ivec2(x1Texel + 1, x1Row), 0).xyz, n),
+		dot(texelFetch(${X1_ANIM_UNIFORM}, ivec2(x1Texel + 2, x1Row), 0).xyz, n));
+	if (x1Rides) {
+		float cp = cos(${X1_POSE_ATTR}.w);
+		float sp = sin(${X1_POSE_ATTR}.w);
+		q = vec3(q.x, cp * q.y - sp * q.z, sp * q.y + cp * q.z);
+		float cy = cos(${X1_POSE_ATTR}.z);
+		float sy = sin(${X1_POSE_ATTR}.z);
+		q = vec3(cy * q.x + sy * q.z, q.y, -sy * q.x + cy * q.z);
+	}
+	return q;
+}`;
+
+/**
+ * The lighting's normal (render/fcopModel.ts fcopLightPatch) posed as the
+ * vertex is: a skeleton turns its normals through each bone and lights them
+ * against the light in the same space (`cact_model_project`
+ * 0x004281db..0x00428206), so the shade is the posed normal's.
+ */
+const LIGHT_NORMAL = "vec3 fcopNormal = vec3( normal );";
+const LIGHT_NORMAL_POSED = "vec3 fcopNormal = x1PoseNormal( normal );";
 
 // render/x1Pose.ts in GLSL: the slot's 3x4 matrix is three texels of its row.
 const VERTEX_POSE = `#include <begin_vertex>
@@ -137,6 +177,7 @@ function patchX1(material: THREE.Material, table: THREE.DataTexture): void {
     shader.uniforms[X1_ANIM_UNIFORM] = { value: table };
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", VERTEX_DECL)
+      .replace(LIGHT_NORMAL, LIGHT_NORMAL_POSED)
       .replace("#include <begin_vertex>", VERTEX_POSE);
   });
 }
@@ -179,6 +220,9 @@ export interface X1RigCore {
   /** Per slot: the side last written (-2 none), and the cloak's v (-1 none). */
   readonly sideCache: Int8Array;
   readonly cloakCache: Int16Array;
+  /** The per-instance damaged flag (render/damaged.ts), HIT_ATTRIBUTE. */
+  readonly hit: THREE.InstancedBufferAttribute;
+  readonly hitCache: Uint8Array;
 }
 
 /** A generator attribute under its shader name (GLTFLoader lowercases `_X1…`). */
@@ -229,6 +273,10 @@ export function buildX1Rig(
   const layers = new THREE.InstancedBufferAttribute(new Float32Array(RIG_CAPACITY * 2), 2);
   layers.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute(X1_LAYERS_ATTR, layers);
+  // The mech's and its partner's CACT_FLAG_DAMAGED, set together by
+  // `player_credit_amount` (render/damaged.ts).
+  const hit = createHitAttribute(RIG_CAPACITY);
+  geometry.setAttribute(HIT_ATTRIBUTE, hit);
   // Taken before the pose is chained on: the shatter's pieces keep the passes.
   const plain = plainMaterials(material);
   const anim = createX1AnimTexture(table);
@@ -246,6 +294,8 @@ export function buildX1Rig(
     plain,
     sideCache: new Int8Array(RIG_CAPACITY).fill(-2),
     cloakCache: new Int16Array(RIG_CAPACITY).fill(-1),
+    hit,
+    hitCache: new Uint8Array(RIG_CAPACITY),
   };
 }
 
@@ -310,6 +360,19 @@ export function placeX1(
   }
 }
 
+/**
+ * Slot `slot`'s damaged flag (render/damaged.ts), written every call and
+ * uploaded on a change, as the masks are. Its own function: placeX1 grown
+ * past V8's inlining budget takes its doubles boxed (x1Alloc.test.ts).
+ */
+export function markX1Hit(core: X1RigCore, slot: number, hit: boolean): void {
+  const hv = hit ? 1 : 0;
+  const changed = core.hitCache[slot] !== hv;
+  core.hitCache[slot] = hv;
+  (core.hit.array as Float32Array)[slot] = hv;
+  core.hit.needsUpdate = changed;
+}
+
 const scratchUv = new Float32Array(2);
 
 /**
@@ -354,6 +417,50 @@ export function x1CockpitSkeleton(
   out.z = y - t[m] * s + t[m + 2] * c;
 }
 
+/**
+ * Where the lock beam leaves an X1 (`hud_draw_lock_beam` 0x00435382): the
+ * partner's model point 0 -- the cockpit's, X1_BEAM_POINT at `cockpitFrame` --
+ * turned by the cockpit's aim (`aimYaw` / `aimPitch`, model space, as
+ * render/x1Pose.ts turns a cockpit vertex), set on the mount of `legsFrame`, and
+ * placed as placeX1 places the X1 at sim (x, y, height) facing `yaw`. Writes the
+ * three-frame point (x, height, sim y) into `out`. Allocates nothing.
+ */
+export function x1BeamPoint(
+  table: Float32Array,
+  x: number,
+  height: number,
+  y: number,
+  yaw: number,
+  legsFrame: number,
+  cockpitFrame: number,
+  aimYaw: number,
+  aimPitch: number,
+  out: Float32Array,
+): void {
+  const b = cockpitFrame * 3;
+  const px = X1_BEAM_POINT[b];
+  const py = X1_BEAM_POINT[b + 1];
+  const pz = X1_BEAM_POINT[b + 2];
+  // Pitch about +x, then yaw about +y (column vectors: Ry * Rx * p).
+  const cp = Math.cos(aimPitch);
+  const sp = Math.sin(aimPitch);
+  const y1 = cp * py - sp * pz;
+  const z1 = sp * py + cp * pz;
+  const cy = Math.cos(aimYaw);
+  const sy = Math.sin(aimYaw);
+  const m = (legsFrame * X1_ANIM_WIDTH + X1_MOUNT_TEXEL) * 4;
+  const mx = cy * px + sy * z1 + table[m];
+  const my = y1 + table[m + 1];
+  const mz = -sy * px + cy * z1 + table[m + 2];
+  // The hull's turn about +y, as placeX1's quaternion.
+  const turn = MODEL_YAW - yaw;
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+  out[0] = x + mx * c + mz * s;
+  out[1] = height + my;
+  out[2] = y - mx * s + mz * c;
+}
+
 export interface AvatarRig {
   /** False until the asset and its table have loaded; callers fall back meanwhile. */
   readonly ready: boolean;
@@ -363,8 +470,9 @@ export interface AvatarRig {
    * Poses one X1 -- walker, transforming or hover alike -- by its frames
    * (render/x1Walk.ts) and the cockpit's aim, its faces gated by the layer
    * masks of its draw form (X1_FORM_*). `cloakV` is the cloak's v offset in
-   * texels, or -1. Returns false when the rig cannot take it (not loaded yet,
-   * or out of capacity): then the caller uses its bucket.
+   * texels, or -1; `hit` draws it in the damaged arms (render/damaged.ts).
+   * Returns false when the rig cannot take it (not loaded yet, or out of
+   * capacity): then the caller uses its bucket.
    */
   place(
     x: number,
@@ -378,11 +486,24 @@ export interface AvatarRig {
     aimPitch: number,
     cloakV: number,
     form: number,
+    hit?: boolean,
   ): boolean;
   /** Publishes the count and the matrices. Call after the entity sweep. */
   end(): void;
   /** The cockpit's mount height above the X1's origin at a legs frame, m (0 until loaded). */
   mountHeight(legsFrame: number): number;
+  /** x1BeamPoint on the loaded table; false (and `out` untouched) until loaded. */
+  beamPoint(
+    x: number,
+    height: number,
+    y: number,
+    yaw: number,
+    legsFrame: number,
+    cockpitFrame: number,
+    aimYaw: number,
+    aimPitch: number,
+    out: Float32Array,
+  ): boolean;
   /** x1CockpitSkeleton for a team's X1; false until loaded. */
   cockpitSkeleton(
     x: number,
@@ -436,7 +557,7 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
     begin() {
       count = 0;
     },
-    place(x, height, y, yaw, team, legsFrame, cockpitFrame, aimYaw, aimPitch, cloakV, form) {
+    place(x, height, y, yaw, team, legsFrame, cockpitFrame, aimYaw, aimPitch, cloakV, form, hit) {
       const c = core;
       if (!c) return false;
       if (count >= RIG_CAPACITY) {
@@ -467,6 +588,7 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
         cloakV,
         form,
       );
+      markX1Hit(c, slot, hit === true);
       return true;
     },
     end() {
@@ -479,6 +601,12 @@ export function createAvatarRig(scene: THREE.Scene): AvatarRig {
       const c = core;
       if (!c) return 0;
       return c.table[(legsFrame * X1_ANIM_WIDTH + X1_MOUNT_TEXEL) * 4 + 1];
+    },
+    beamPoint(x, height, y, yaw, legsFrame, cockpitFrame, aimYaw, aimPitch, out) {
+      const c = core;
+      if (!c) return false;
+      x1BeamPoint(c.table, x, height, y, yaw, legsFrame, cockpitFrame, aimYaw, aimPitch, out);
+      return true;
     },
     cockpitSkeleton(x, height, y, yaw, team, legsFrame, cockpitFrame, out) {
       const c = core;

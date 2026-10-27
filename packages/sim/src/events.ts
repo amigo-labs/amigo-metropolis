@@ -284,6 +284,23 @@ export const EV_SHIELD_ARC_STEP = 29; // a=avatar id, b=the old angles, c=the ne
  * its pieces that way. Pushed just before the body's EV_DEATH.
  */
 export const EV_KILL_PUSH = 30; // a=victim id, b=packDirection(round heading), c=round damage
+/**
+ * The powered Electric Gun jumps from its lock to another body (`player_arc`
+ * 0x00459bd0): a link between the two actors' reference points (both ends
+ * `cact_effect_end_create_actor` with point -1), the record's columns with its
+ * segments halved, or with no record 6 segments, one strand, (0x7f, 0x7f,
+ * 0xff), fade 0x4b0, amplitude 0x7fff. `c` is the shot's weaponShotPayload
+ * (the gun, powered, no reach). Pushed before the jump's EV_HIT.
+ */
+export const EV_GUN_ARC = 31; // a=the lock (the jump's start), b=the body it jumps to, c=weaponShotPayload
+/**
+ * Another actor's touch (`cact_base_op11` operation 0x0b, 0x0041a7eb): a round
+ * that struck a body by its contact, with no blast — the guided rounds, the
+ * blastless missiles. It clears the high nibble of the body's +0x19, the death
+ * mask its damage messages built (fcop-fidelity.md A19). Pushed just after the
+ * contact's EV_HIT.
+ */
+export const EV_TOUCH = 32; // a=touched entity id
 
 /** A unit direction as one event field: x, y and up, ten signed bits each (/ 511). */
 export function packDirection(x: number, y: number, h: number): number {

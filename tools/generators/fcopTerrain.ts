@@ -175,8 +175,32 @@ function plateHeight(
 /** The plate stack under a point, world units (raw position words), ascending. */
 export type PlateStack = (xWu: number, zWu: number) => number[];
 
+/** One plate under a point: its height (world units) and its material byte. */
+export interface Plate {
+  readonly h: number;
+  /**
+   * The plate's action-type byte, the surface's material: the Sect's four at
+   * +0x370 picked by the plate word's bits 13-14 (RE fcop/trace.h; til_mesh.py
+   * `polygon_action_types`). Bit 7 is the view trace's see-through
+   * (`view_trace` 0x00445e80).
+   */
+  readonly material: number;
+}
+
+/** The plates under a point with their materials, ascending by height. */
+export type PlateQuery = (xWu: number, zWu: number) => Plate[];
+
+/** A Ctil `Sect`'s four material bytes, from its tag. */
+const MATERIAL_OFFSET = 0x370;
+
 /** The container's height query, as a function of a raw actor position. */
 export function plateStackOf(container: Uint8Array): PlateStack {
+  const plates = platesOf(container);
+  return (x, z) => plates(x, z).map((p) => p.h);
+}
+
+/** plateStackOf, with each plate's material byte. */
+export function platesOf(container: Uint8Array): PlateQuery {
   const res = containerIndex(container);
   const gridAt = res.get("ctpC:1") ?? [...res.entries()].find(([k]) => k.startsWith("ctpC:"))?.[1];
   if (!gridAt) throw new Error("no Cptc in the container");
@@ -224,7 +248,7 @@ export function plateStackOf(container: Uint8Array): PlateStack {
       sect[o + CELL_INDEX_OFFSET + cell * 2] | (sect[o + CELL_INDEX_OFFSET + cell * 2 + 1] << 8);
     let remaining = index & 0xf;
     let plate = o + PLATE_OFFSET + (index >> 4);
-    const out: number[] = [];
+    const out: Plate[] = [];
     const fz = (z & 0x1fff) << 3;
     const fx = (x & 0x1fff) << 3;
     while (remaining > 0 && out.length < 16) {
@@ -233,10 +257,10 @@ export function plateStackOf(container: Uint8Array): PlateStack {
       const type = (w >>> 15) & 0x7f;
       if (type > TYPE_MAX) break;
       const h = plateHeight(sect, o + (cell + 4 + u) * 3, type, fz, fx);
-      if (h !== null) out.push(h);
+      if (h !== null) out.push({ h, material: sect[o + MATERIAL_OFFSET + ((w >>> 13) & 3)] });
       remaining--;
     }
-    return out.sort((a, b) => a - b);
+    return out.sort((a, b) => a.h - b.h);
   };
 }
 

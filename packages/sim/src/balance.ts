@@ -255,7 +255,8 @@ export const HOVER_CLEARANCE = 0x1000 / 8192;
 /**
  * Held down within 0xcc wu (2.5 cm) of its ride height a step, else airborne
  * (0x00442cea). Per tick it covers 1.25 steps of ground, so the band is scaled
- * to keep the same slope at which a fast hover leaves the ground.
+ * to keep the same bend in the ground (read along the plane it rides, sim.ts)
+ * at which a fast hover leaves it.
  */
 export const HOVER_HOLD_DOWN = (0xcc / 8192) * X1_STEPS_PER_TICK;
 /**
@@ -360,6 +361,92 @@ export const WALKER_LUNGE_MAX_RISE = 0x2333 / 8192;
 export const AVATAR_JUMP_SPEED = WALKER_HIGH_LIFT;
 /** A 16.16 velocity a movement step (the walker machine's integers) in m/s. */
 export const X1_STEP_SPEED = FX * X1_SPEED_UNIT;
+
+// --- Walls, the facing snap and the ceiling (fcop-fidelity.md P4, P5) --------
+//
+// `player_ground_push` (0x00443490): a contact with a wall plate adds
+// +-0x24000 (16.16 a step) along the wall's own normal, away from it, into the
+// ride block's impulse, once per wall kind, and leaves the kind in `snap_state`.
+// The next step `player_apply_impulse` (0x00443370) spends it: halved while
+// airborne (flags bit 0, 0x0044339f), halved again in the hover or on a mode
+// floor (block +0xad / +0x147, 0x004433bd); the velocity loses its component
+// along the impulse and decays by an eighth on every axis, a rise over 0x100
+// is cut (0x0044344b), and the step's stop test does not run. And
+// `player_snap_facing` (0x004437d0) turns the facing at most 8 units a step
+// toward the direction that wall runs in.
+/**
+ * A wall contact's push per axis: 0x24000 a step (0x0044360b), m/s; doubled on
+ * a step whose actors' push met anything (`player_ground_push`'s second
+ * argument, 0x0044361b).
+ */
+export const WALL_PUSH = 0x24000;
+/** The facing snap's largest step: 8 units of 4096 a turn (0x0044388d). */
+export const SNAP_STEP = 8;
+/** A rise the impulse's decay leaves above 0x100 a step is cut (0x0044344b). */
+export const IMPULSE_RISE_CUT = 0x100;
+/** The hover's drag while a snap is pending: 0x6000 = 0.375 a step (0x004427d0). */
+export const HOVER_DRAG_SNAP = 0x6000 * FX;
+/**
+ * The walker's head: rising faster than 0x10 a step (0x004448a6), a trace from
+ * 0x24c0 wu (1.15 m) above where it was to 0x24c0 above where it is that meets a
+ * plate stops the rise and halves the horizontal velocity (0x00444904).
+ */
+export const WALKER_HEAD_HEIGHT = 0x24c0 / 8192;
+export const WALKER_RISE_GATE = 0x10;
+/**
+ * The hover's ledge on the slow row (0x00442cea..0x00442d47): in states 1 and
+ * 2, a step that leaves it more than its hold-down band but less than 0x333 wu
+ * (0.1 m) over its ride height puts it back, horizontal velocity zeroed.
+ */
+export const HOVER_LEDGE_DROP = 0x333 / 8192;
+
+// --- The actors' contacts' push (fcop-fidelity.md P4) -----------------------
+//
+// `player_push_contacts` 0x00442e70 -> `player_push_pair` 0x00442f70 ->
+// `player_push_apart` 0x00443070 -> `player_push_from_box` 0x004431d0, every
+// movement step of either form: the viewport's lock candidates (actors with
+// flag 0x40 whose sphere gap to the mech's legs is under 0x1800 wu,
+// `cact_pair_test` 0x00450265) and, with two viewports, the other mech's own
+// contact box; each gated on the two blocks' coarse half extents and met by the
+// mech's own one-box contact model (`player_shape_bind` 0x00441c40) against the
+// other's hit boxes; each met box pushes the mech by STEP per axis of its own
+// frame, horizontal only, into the wall push's impulse.
+/** The lock candidates' sphere gap: 0x1800 wu (0x00450265), metres. */
+export const PUSH_TARGET_GAP = 0x1800 / 8192;
+/** A met box's push per axis, box sixteenths (0x0044324f); x16 into the impulse. */
+export const PUSH_BOX_STEP = 0x2400;
+/** The same for an actor carrying flag 0x400 (the Dreadnought and its mounts, 0x00443259). */
+export const PUSH_BOX_STEP_WIDE = 0x4000;
+/** `snap_state |= 0x10` after a push (0x004431bb): the facing snaps toward 0. */
+export const SNAP_CONTACT = 0x10;
+/**
+ * A touch's damage to the mech per movement step, the toucher's +0x1a (tACT
+ * record word 22, `cact_base_construct`; credited at 0x0044302c), by archetype:
+ * the tank 1, the Dreadnought and each of its mounts 10 (0x00426003 copies the
+ * hull's), the X1-Alpha 1; the turrets, the jet, the Fortress and the Sky
+ * Captain 0. The same on all six Precinct Assault arenas.
+ */
+export const TOUCH_DAMAGE_PER_STEP: readonly number[] = [
+  1, // AVATAR
+  1, // RUNNER
+  0, // GUARDIAN
+  10, // JUGGERNAUT
+  0, // FORTRESS
+  0, // TURRET
+  0, // PROJECTILE
+  0, // CONSOLE
+  0, // WARDEN
+];
+/**
+ * The contact model's vertical band (`player_transform_shape` 0x00441cf0): its
+ * centre A = 0x126 - 179 * progress, its half-span B = 0x19 * (1 - progress),
+ * box halfwords; the box's centre is A + B and its half A - B. The crouch's
+ * `player_bounds_pair` (0x00444f00) sets 0x126 - 0x5a +- 0x19, the standing one
+ * 0x126 +- 0x19.
+ */
+export const SHAPE_BAND_CENTRE = 0x126;
+export const SHAPE_BAND_HALF = 0x19;
+export const SHAPE_CROUCH_DROP = 0x5a;
 
 // --- The walker's state machine (walker.ts; fcop-fidelity.md G11, P4) --------
 //
@@ -1055,14 +1142,185 @@ export const AVATAR_LOCK_ACQUIRE_COS = 0xf9ee / 65536;
 /** The hold cone, cos 0xe804 (+-25°): a lock outside it (or past 12 m) drops. */
 export const AVATAR_LOCK_HOLD_COS = 0xe804 / 65536;
 
+// --- The sustained weapons: what spreads their damage (fcop-fidelity.md W1) ---
+//
+// None of the Flamethrower (kind 0x0e), the Concussion Beam (0x11) and the
+// Shockwave Generator (0x0f) hurts through the direct or the launch path
+// (`player_fire_direct` skips its message for the flame at 0x004598ff; 0x11 and
+// 0x0f return from `player_fire_launch`'s switch). Their damage comes from the
+// effects they raise (RE M3-OR, `disasm/map-open.md` "Flame, beam and
+// shockwave"; src/game/actor/sustain*.c, effect_trail_node.c, effect_type92.c,
+// damage.c), which sustain.ts models: type-87 trails of nodes and type-92
+// expanding shells. Their numbers are GlblData's effect records (bank 1, the
+// same bytes in all six PA missions; RE extracted/effects/*.json), at the
+// retail offsets the factories read, in the original's units: world units
+// (8192 a metre), sixteenths of a world unit for widths and radii, engine
+// units of the 300 Hz clock (10 a sim tick, the delta at 30 fps).
+
+/** A type-87 trail record as `cact_effect_create_type87` (0x00449cc0) reads it. */
+export interface TrailRecord {
+  /** The bank-1 effect id. */
+  readonly id: number;
+  /** +0x34: a new node's half-width, sixteenths (`cact_trail_node_init` 0x00449bba). */
+  readonly headHalf: number;
+  /** +0x36: the width the nodes grow by over the three stages, sixteenths. */
+  readonly widthGrowth: number;
+  /** +0x38..+0x40: the three stages' red, green and blue. */
+  readonly rgb: readonly number[];
+  /** +0x42/+0x44/+0x46: the three stages' lengths, engine units. */
+  readonly stageLength: readonly number[];
+  /** +0x48: a node per `spacing` sixteenths the head is from the emission point (0x00449625). */
+  readonly spacing: number;
+  /** +0x4e: the emission speed, the node velocity's halfword length (0x0044b061). */
+  readonly emitSpeed: number;
+}
+
+/** The Flamethrower's trail, block A: record 40 (bank 1). */
+export const TRAIL_FLAME_A: TrailRecord = {
+  id: 40,
+  headHalf: 16,
+  widthGrowth: 244,
+  rgb: [255, 128, 0, 0, 0, 0, 0, 0, 0],
+  stageLength: [6144, 0, 0],
+  spacing: 134,
+  emitSpeed: 2048,
+};
+/** Block B's: record 45. */
+export const TRAIL_FLAME_B: TrailRecord = {
+  id: 45,
+  headHalf: 18,
+  widthGrowth: 407,
+  rgb: [220, 150, 64, 16, 0, 0, 0, 0, 16],
+  stageLength: [6144, 3072, 1024],
+  spacing: 132,
+  emitSpeed: 2048,
+};
+/** The Concussion Beam's trail, block A: record 100. */
+export const TRAIL_BEAM_A: TrailRecord = {
+  id: 100,
+  headHalf: 38,
+  widthGrowth: 39,
+  rgb: [32, 32, 64, 32, 32, 96, 0, 0, 0],
+  stageLength: [1228, 37, 0],
+  spacing: 406,
+  emitSpeed: 16384,
+};
+/** Block B's: record 105. */
+export const TRAIL_BEAM_B: TrailRecord = {
+  id: 105,
+  headHalf: 39,
+  widthGrowth: 60,
+  rgb: [127, 127, 255, 0, 0, 64, 0, 0, 0],
+  stageLength: [1228, 37, 0],
+  spacing: 406,
+  emitSpeed: 16384,
+};
+
+/** A type-92 shell record as `cact_effect_create_type92` (0x004196e0) reads it. */
+export interface ShellRecord {
+  /** The bank-1 effect id. */
+  readonly id: number;
+  /** +0x2e: the amount each blast deals at its centre (the shockwave's is stamped from its block, 0x0044b5a5). */
+  readonly amount: number;
+  /** +0x34: growth, the radius gains `elapsed * growth >> 8` sixteenths a pass (0x00418a28). */
+  readonly growth: number;
+  /** +0x36: the growth's decay (0 in all three). */
+  readonly decay: number;
+  /** +0x38: the radius it blasts once more at and retires (0x00418b14). */
+  readonly limit: number;
+  /** +0x3a: thickness, sixteenths (doubled with SHELL_FLAG_DOUBLE). */
+  readonly thickness: number;
+  /** +0x42..+0x47: the two colours the fade empties. */
+  readonly rgb: readonly number[];
+  /** +0x48: the fade's parameter (the intensity, 0x004199d0). */
+  readonly fade: number;
+  /** +0x4c: the start radius, sixteenths (negative: relative to the raiser's scale). */
+  readonly start: number;
+  /** +0x52: the shape flags. */
+  readonly flags: number;
+}
+
+/** The Shockwave Generator's shell, block A: record 170 (its +0x2e takes the block's 300). */
+export const SHELL_SHOCKWAVE_A: ShellRecord = {
+  id: 170,
+  amount: 300,
+  growth: 2454,
+  decay: 0,
+  limit: 2048,
+  thickness: 1228,
+  rgb: [127, 96, 0, 0, 0, 127],
+  fade: 4096,
+  start: -6554,
+  flags: 0x1c2,
+};
+/** Block B's: record 175 (+0x2e 200 in the record, 300 from the block). */
+export const SHELL_SHOCKWAVE_B: ShellRecord = {
+  id: 175,
+  amount: 300,
+  growth: 2866,
+  decay: 0,
+  limit: 2866,
+  thickness: 407,
+  rgb: [127, 96, 0, 0, 0, 127],
+  fade: 3686,
+  start: -6554,
+  flags: 0x1c2,
+};
 /**
- * The Flamethrower's damage cadence: Metropolis' own. The original's fire is a
- * sustained effect whose nodes each carry the record's 6 (B: 10) damage, and how
- * often a node hits was not established (fcop-re/player-and-weapons.md §9.1). So
- * the time profile stays Metropolis' (one hit every 5 ticks, as the old flame
- * did) and the per-hit damage, reach and ammunition are the record's.
+ * The powered Concussion Beam's impact: record 107, 50 with blast 2048, raised
+ * at every body the beam hurts and where it meets terrain. Block A's impact,
+ * record 102, carries no amount and hurts nothing.
  */
-export const FLAME_PULSE_TICKS = 5;
+export const SHELL_BEAM_IMPACT_B: ShellRecord = {
+  id: 107,
+  amount: 50,
+  growth: 2867,
+  decay: 0,
+  limit: 2048,
+  thickness: 409,
+  rgb: [0, 0, 0, 127, 96, 0],
+  fade: 1024,
+  start: 0,
+  flags: 0x1c,
+};
+/** Shape flag 0x10: the blast's outer radius takes the thickness twice (0x00418c8c). */
+export const SHELL_FLAG_DOUBLE = 0x10;
+/** Shape flag 0x40: the blast's vertical gate has no floor (0x00418c98). */
+export const SHELL_FLAG_NO_FLOOR = 0x40;
+/**
+ * The Shockwave's start radius, sixteenths: COULD NOT ESTABLISH. The record's
+ * -6554 is relative, `-scale * field >> 12` (`cact_effect_place` 0x0042c9ad),
+ * and the raiser's scale for the mech is open (RE M3-OK). Metropolis takes the
+ * client's 0x100: 409 sixteenths, 0.8 m.
+ */
+export const SHOCKWAVE_START_RADIUS = (-0x100 * -6554) >> 12;
+
+/** The attached sustain's countdown, refreshed by every call: 0x32 units (0x0044af58, 0x0044afa7). */
+export const SUSTAIN_ATTACHED_UNITS = 0x32;
+/** The aimed sustain's: 0x96 units (0x0044b791). */
+export const SUSTAIN_AIMED_UNITS = 0x96;
+/** A trail node that hurt waits 10 trail ticks, then ends the stream there (0x0044b526, 0x00449670). */
+export const SUSTAIN_TOUCH_WAIT = 10;
+/** The flame asks a body only within 0x10000 wu of the shooter on every axis (0x0044b384). */
+export const SUSTAIN_SWEEP_BOX = 0x10000;
+/** The beam touches only while its segment is under 0x14000 wu on every axis (0x0044bb10). */
+export const SUSTAIN_BEAM_BOX = 0x14000;
+/** A beam node hurts at most ten bodies (`cmp dl, 0xa` at 0x0044bee9). */
+export const SUSTAIN_HIT_SLOTS = 10;
+/** One terrain impact of the beam's in six raises its effect (0x0044becc). */
+export const SUSTAIN_IMPACT_WAIT = 5;
+/** A trail's node pool: 0x28 (`node_pool_init(+0x64, 0x30, 0x28)` at 0x00449cec). */
+export const TRAIL_NODES = 0x28;
+/** The band gate's margin about a body's reference point, wu (CACT_BLAST_BAND_MARGIN, 0x0042f2c4). */
+export const BLAST_BAND_MARGIN = 0x1000;
+/**
+ * Trails a player can hold at once: Metropolis'. The original's two pools hold
+ * ten sustains each for every shooter in the mission (0x0044ce50); a stream
+ * still burning out after a release is one, the next press another.
+ */
+export const SUSTAIN_TRAILS_PER_PLAYER = 4;
+/** Type-92 shells alive at once in the sim: Metropolis' bound (the original allocates each). */
+export const SUSTAIN_SHELLS = 24;
 
 /**
  * A homing missile's turn rate, rad/s: Metropolis' own. The original's
@@ -1086,11 +1344,21 @@ export const ARC_FREE_AIM_DISTANCE = 0x10000 / 8192;
 export const HELLFIRE_SPLIT_FAN = 0.35;
 
 /**
- * The powered Mortar's shell (kind 0x14) bursts into four kind-4 fragments at its
- * apex (player-weapons.json); how they spread was not read. Metropolis throws
- * them as a cross at this horizontal speed relative to the shell, m/s: ours.
+ * The burst of a kind-0x14 shell (the powered Mortar's and Plasma Flare's) at its
+ * apex, `cact_round_advance` 0x00423f55..0x00424069 (RE type7.c): fragment i of
+ * four (the sink runs 0, 0x2000 .. while `< 0x8000`) is a copy of the shell
+ * (kind 4) whose velocity, in world units a second, takes three draws: the
+ * original's x `+ (rand & 0x3fff) - 0x2000 + (i & 1 ? 0x2000 : -0x2000)`
+ * (0x00423fd3), its y `- ((rand & 0x1fff) + 0x2000 * i)` (0x00423ff8), its z as
+ * x on bit 1 of i (0x00424025). So each fragment flies into its own quadrant at
+ * up to 2 m/s off the shell and drops 0..1 m/s faster per i. The shell is not
+ * killed: it falls on and goes off where it lands.
  */
-export const MORTAR_FRAGMENT_SPREAD = 1.5;
+export const CLUSTER_SINK_STEP = 0x2000;
+export const CLUSTER_SINK_END = 0x8000;
+export const CLUSTER_SIDE_MASK = 0x3fff;
+export const CLUSTER_SIDE_HALF = 0x2000;
+export const CLUSTER_DOWN_MASK = 0x1fff;
 
 // Pop-Up Mines: the dropped round (`cact_round_spawn_dropped` 0x0044d6a0), the
 // bouncing round's class (`type15.c`) with a fuse (RE M3-OP). It leaves the
@@ -1193,6 +1461,26 @@ export const GRENADE_RADIUS = (93 << 4) / 8192;
  * that is the order two colliding bodies are told of their contact in.
  */
 export const PAIR_CELL = (1 << 15) / WU_PER_METRE;
+
+// The powered Electric Gun's jump (`player_arc` 0x00459bd0, RE M3-GL), called
+// by `player_fire_direct` 0x00459a89 with block B only and only when the line
+// reached its lock: from the lock to at most two other bodies, each one sent
+// block B's damage.
+/** At most two jumps: `mov [esp+0x14], 2` at 0x00459be7, `dec; js` at 0x00459cae. */
+export const ELECTRIC_ARC_HITS = 2;
+/**
+ * A jump's reach: a cube on the reference points, each axis `< 0x8000` wu
+ * (4 m), exclusive (0x00459c75, 0x00459c89, 0x00459c9e `jge`).
+ */
+export const ELECTRIC_ARC_AXIS_WU = 0x8000;
+
+/**
+ * Type 7's range kill (RE M3-KH, `round_orient` 0x00423b28): an arced round
+ * whose position is more than 0x58000 wu (44 m) from its owner's reference
+ * point at its launch, by `vec_distance_xz` (0x00458000), is killed silently
+ * (`cact_kill` 0x0043b170: no blast, no impact).
+ */
+export const ARC_ROUND_RANGE_WU = 0x58000;
 
 // Muzzle geometry, shared by the sim and by the renderer's muzzle flash. They
 // lived in sim.ts, where render/fx.ts could only keep a hand-copied duplicate
@@ -1433,14 +1721,13 @@ export const RUNNER_SPEED = 4;
 export const JUGGERNAUT_SPEED = 2.5;
 
 // Unit movement shared knobs.
-export const AIR_ALTITUDE = 6; // flyers ride this high above ground/water
 export const WAYPOINT_RADIUS = 3; // lane waypoint advance distance
 /**
  * Waypoint advance distance of the AUTHORING road walker (roads.ts `walkRoad`),
  * which stage 2 of the arena pipeline and paRoads.test.ts use to prove a road's
  * wall bits are open. The sim no longer reads it: since SIM_VERSION 44 a ground
- * unit on the original graph walks each leg to its full length (units.ts
- * moveRouteFollower), with no arrival radius, as the original does.
+ * unit on the original graph walks each leg to its full length (route.ts
+ * routeTick), with no arrival radius, as the original does.
  *
  * Why 0.5 for the walker: a Cnet edge is a metre-wide street in a wall lattice
  * imported at 1 m resolution, so a walker that advanced 3 m early (the polylines'
@@ -1452,7 +1739,7 @@ export const GRAPH_WAYPOINT_RADIUS = 0.5;
 
 // --- Route followers on the original road graph (fcop-fidelity.md U1/U2) ---
 // The PA tank (Runner) and the Dreadnought (Juggernaut) drive their side's Cnet
-// as the original's route followers do (units.ts moveRouteFollower;
+// as the original's route followers do (route.ts;
 // fcop-re/ai-and-rules.md §4, route.c / route_tick.c / route_near.c). Imported
 // arenas only: district-01 and the test maps keep Metropolis' polyline lanes.
 
@@ -1471,6 +1758,31 @@ export const ROUTE_TOP_SPEED = (54 * 300) / 8192;
  * 469-472, `velocity_84 * dt`).
  */
 export const ROUTE_SPEED_UNIT = 300 / 8192;
+/**
+ * The route block's three speeds as `cnet_route_init` (0x004415f0) stores them,
+ * `(raw << 8) / 300` truncated, the top shifted down four more: world units per
+ * engine tick, and per engine tick per engine tick for the ramp, which moves
+ * `(accel * delta) / 16` toward the commanded speed (`cnet_route_tick`
+ * 0x00440325, 0x00440342). Every PA tank and Dreadnought record carries move
+ * speed 1024, acceleration 1228, deceleration 614 (Mp, Conft, Hk, Joke, Ovmp,
+ * Slim: tACT payload +0x30): 54, 1047 and 523. At lockstep's delta of 10 both
+ * arms reach any target inside one frame.
+ */
+export const ROUTE_SPEED_WORD = ((1024 << 8) / 300) >> 4;
+export const ROUTE_ACCEL_WORD = Math.floor((1228 << 8) / 300);
+export const ROUTE_DECEL_WORD = Math.floor((614 << 8) / 300);
+/**
+ * A traffic slowdown's hold, engine ticks (`CNET_ROUTE_HOLD_TICKS`, written by
+ * `cnet_route_near_actor` 0x00424b09), and the one-tick hold that releases one
+ * (`CNET_ROUTE_HOLD_RELEASE`, 0x00424b30).
+ */
+export const ROUTE_HOLD_ENGINE_TICKS = 300;
+export const ROUTE_HOLD_RELEASE = 1;
+/**
+ * The rear-end contact's hold (`cnet_route_contact` 0x004248ad / 0x004248c4):
+ * -300 into the follower pushed ahead, +300 into the one behind.
+ */
+export const ROUTE_CONTACT_HOLD = 300;
 /** A tank's wander: 1638 of 4096 steps (40 %) are random (`cnet_route_next`). */
 export const ROUTE_WANDER = 1638;
 /** A tank's seek search: the nearest enemy-team actor within 8192 << 4 wu = 16 m. */
@@ -1481,8 +1793,8 @@ export const ROUTE_NODE_UNITS = 32;
 export const ROUTE_SCORE_NO_LINK = -4;
 export const ROUTE_SCORE_PREV = -2;
 export const ROUTE_SCORE_PREV2 = -1;
-/** Every traffic slowdown holds 300 engine ticks = 1 s (`CNET_ROUTE_HOLD_TICKS`). */
-export const ROUTE_HOLD_TICKS = 30;
+/** ...and a node a mission script has closed (`CNET_SCORE_BLOCKED`, 0x004410d8). */
+export const ROUTE_SCORE_CLOSED = -3;
 /** The pair test records a neighbour only inside a 0x4000 wu = 2 m gap. */
 export const ROUTE_NEAR_GAP = 2;
 /** A non-follower closer than 0x4000 wu = 2 m dead ahead stops the follower. */
@@ -1508,6 +1820,9 @@ export const ROUTE_CONE_COS = 0xf600 / 0x10000;
  */
 export const GUARDIAN_AIRCRAFT_SPEED = 2048 / 512; // (raw << 12) / 300 >> 8 per tick at 300 Hz
 export const FORTRESS_AIRCRAFT_SPEED = 2457 / 512;
+/** The two records' speed words, `(raw << 12) / 300` (the construct, 0x004204bc). */
+export const GUARDIAN_AIRCRAFT_SPEED_RAW = Math.floor((2048 << 12) / 300);
+export const FORTRESS_AIRCRAFT_SPEED_RAW = Math.floor((2457 << 12) / 300);
 /**
  * The PA aircraft's target search (`aircraft_step` 0x00420752): every 0x384 +
  * rand 0..0x1ff engine units (3.0-4.7 s) it takes the nearest enemy within the
@@ -1577,8 +1892,9 @@ export const AIRCRAFT_REVERSE_JITTER = 0x80;
  * hardest turn (5120) is 81..190°/s at 30 fps, the Sky Captain's (4096) 65..152°/s,
  * 262..621°/s boosted. Every PA jet and Flying Fortress record carries 5120,
  * every Sky Captain 4096 (all six arenas). Metropolis steps it once a tick with
- * delta = AIRCRAFT_DELTA_UNITS; the heading's Y (the altitude command, its 7/8
- * decay and the pitch clamp) and the bank's speed penalty are not modelled.
+ * delta = AIRCRAFT_DELTA_UNITS; the heading's Y is the altitude controller's
+ * (units.ts flyHeading, verticalCommand), the travel loses the bank's penalty
+ * (travelWu) since SIM_VERSION 106.
  */
 export const AIRCRAFT_TURN_RATE = 5120;
 export const SKY_TURN_RATE = 4096;
@@ -1596,6 +1912,85 @@ export const AIRCRAFT_STEP_BITS = 15;
  */
 export const SKY_TURN_BOOST_SHIFT = 2;
 export const SKY_TURN_BOOST_RADIUS = 0x14000 / 8192;
+
+// --- The aircraft's altitude, launch and crash (RE aircraft.c; fcop-fidelity.md U4, U3, A19) ---
+/**
+ * An aircraft record's flight block, raw as the construct reads it
+ * (`aircraft_construct` 0x00420380): the three altitudes (payload +0x3a / +0x3c
+ * / +0x3e, `<< 4` wu above the floor), the spawn flags (+0x35) and the model's
+ * Y half-extent (`word_6c`, the 3DBB box-0 halfword at +8 of the frame the
+ * model holds, `cact_model_select` 0x004297e0), whose `<< 4` raises the floor.
+ */
+export interface AircraftFlight {
+  readonly altMin: number;
+  readonly altCruise: number;
+  readonly altMax: number;
+  readonly halfY: number;
+  readonly spawn: number;
+}
+/** Spawn flag 0x02: start 0x20000 wu (16 m) above the placement (0x00420592). */
+export const AIRCRAFT_SPAWN_HIGH = 0x02;
+/** Spawn flag 0x04: start on the surface in the launch climb (0x0042059b). */
+export const AIRCRAFT_SPAWN_CLIMB = 0x04;
+export const AIRCRAFT_SPAWN_HIGH_RISE = 0x20000;
+/**
+ * Mp's records, for an arena that imports none: every jet (Csac 33/34, 91/99,
+ * 145/155, 174/175, 206/207) 819 / 921 / 1024 with spawn flags 0x0c (XZ and the
+ * launch climb), model Cobj 22's half-extent 107; the Flying Fortress (Csac 6/8)
+ * the same altitudes, flags 0x02 (HIGH), Cobj 41's 175.
+ */
+export const ORIGINAL_JET_FLIGHT: AircraftFlight = {
+  altMin: 819,
+  altCruise: 921,
+  altMax: 1024,
+  halfY: 107,
+  spawn: 0x0c,
+};
+export const ORIGINAL_FORTRESS_FLIGHT: AircraftFlight = {
+  altMin: 819,
+  altCruise: 921,
+  altMax: 1024,
+  halfY: 175,
+  spawn: 0x02,
+};
+/**
+ * Mp's Sky Captain records by level band (Cact 287 levels 0-2, 295 3-5, 296
+ * 6-8, 297 9): 614 / 655 / 716, flags 0, Cobjs 54 / 56 / 57 / 58 (half-extents
+ * 181 / 265 / 483 / 457), for an arena that imports none.
+ */
+export const ORIGINAL_SKY_FLIGHT: readonly AircraftFlight[] = [
+  181, 181, 181, 265, 265, 265, 483, 483, 483, 457,
+].map((halfY) => ({ altMin: 614, altCruise: 655, altMax: 716, halfY, spawn: 0 }));
+/**
+ * The vertical command saturates at ±0x1800 below `floor + altMin << 4` and
+ * above `floor + altMax << 4`; between, `(target - y) * gain * 3 >> 5` with the
+ * gain the reciprocal of the half band, and a magnitude of 0x200 or less is
+ * dropped (0x00420a60..0x00420af2).
+ */
+export const AIRCRAFT_VERT_MAX = 0x1800;
+export const AIRCRAFT_VERT_DEADBAND = 0x200;
+/** The heading's Y is clamped to ±0x8000 of its 15-bit rescale (0x00420b5b). */
+export const AIRCRAFT_PITCH_LIMIT = 0x8000;
+/** The up vector's Y bias the bank is built against (0x00420c61, 0x00420ee3). */
+export const AIRCRAFT_UP_BIAS = 0x2000;
+
+/**
+ * The X1 cockpit's aim (`player_partner_tick` 0x004470d0; orient.ts
+ * systemCockpitAim), 4096 a turn: a step a tick toward the lock
+ * (`PLAYER_AIM_STEP`, 0x004471ec / 0x0044726e), the pitch's limit either way
+ * (0x004471bf / 0x004471cd) and the yaw's off the facing (0x00447242 /
+ * 0x0044724e).
+ */
+export const COCKPIT_AIM_STEP = 0x18;
+export const COCKPIT_AIM_PITCH_LIMIT = 0x190;
+export const COCKPIT_AIM_YAW_LIMIT = 0x80;
+/**
+ * The crash (`aircraft_op4` 0x00420296): the Sky Captain always, a jet or
+ * Flying Fortress when `(rand & 0xf) < 0xa` (10 times in 16), freezes heading x
+ * speed as its velocity and draws three `(rand & 0xfff) - 0x800` as its tumble.
+ */
+export const AIRCRAFT_CRASH_ROLL = 0xa;
+export const AIRCRAFT_TUMBLE_SPAN = 0x1000;
 
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
 export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tick
@@ -1648,14 +2043,13 @@ export function skyMaxHp(level: number): number {
  * 0, 3.60 at 3, 4.51 at 9. Was WARDEN_SPEED 10.
  */
 export const SKY_RECORD_SPEED = 25163;
-export function skySpeed(level: number): number {
-  const internal = SKY_RECORD_SPEED + (level < 3 ? (level - 3) * 0x800 : (level - 3) * 0x420);
-  return (internal * 300) / 256 / 8192;
+/** The construct's speed word at a level (`+0xf4`, the units `aircraft_fly` reads). */
+export function skySpeedRaw(level: number): number {
+  return SKY_RECORD_SPEED + (level < 3 ? (level - 3) * 0x800 : (level - 3) * 0x420);
 }
-
-/** Cruise height above ground/water: Metropolis' (the record's 1.28 m is above a
- * coarse ground envelope the heightfield does not carry). */
-export const WARDEN_ALTITUDE = 7;
+export function skySpeed(level: number): number {
+  return (skySpeedRaw(level) * 300) / 256 / 8192;
+}
 
 /**
  * Rethink: the decision pass runs when the countdown goes negative and reloads it
@@ -1765,8 +2159,9 @@ export const SKY_BOMB_BLAST = 3.2;
  * no acceleration (+0x14 is 0 on Mp, Conft, Hk and Ovmp) the round leaves at
  * that speed and keeps it (`cact_missile_spawn` 0x0044d103: `top << 4` when
  * the acceleration is 0). Slim's and Joke's entry carries an acceleration of
- * 0x7a, so there it leaves at `top * 2` and speeds up to it within 0.2 s: not
- * modelled, the captain's weapons are one table on every arena.
+ * 0x7a, so there it leaves at `top * 2`, an eighth, and speeds up by `delta *
+ * 104 / 16` a tick to it within 0.2 s (MapData.skyMissileAccel, imported per
+ * arena; sim.ts fireWardenMissile) since SIM_VERSION 106.
  */
 export const SKY_MISSILE_SPEED_RAW = 8192;
 /**
@@ -1791,6 +2186,15 @@ export const SKY_SEARCH_UNITS = 300;
  * read: all round here. [B] in the evidence (the reading of bits 0..2).
  */
 export const SKY_ARC_SIDE_COS = -0.9238795325112867; // cos 157.5°
+/**
+ * Which of the Sky Captain's three shooters (weapons 7, 8, 9) is ALTERNATE,
+ * its muzzle flipping between its model's points 0 and 1 every round
+ * (`cact_shooter_step` 0x0044e673): its construct ORs 0x20 into the record's
+ * bitfields of its own shooter (payload 0x22, 0x0042122d) and its first
+ * controller (0x56, 0x0042127c) before they are read; the second (0x66,
+ * weapon 9) keeps the record's 0x242 on every shipped type-37 record.
+ */
+export const SKY_SHOOTER_ALTERNATE: readonly number[] = [1, 1, 0];
 
 /** Its units' cap (SKY_UNIT_CAP 0x14), the same 20 the human pads check. */
 export const SKY_UNIT_CAP = 20;
@@ -1839,7 +2243,8 @@ export const SKY_OPENING_ORDER = 10;
 export const ARCHETYPE_RADIUS: readonly number[] = [
   // The mech's legs (Cobj 15, the type-1 actor's own model; the cockpit is its
   // partner) at the walker's pose, frame 0: 283. Its 371 frames run 232-365
-  // (0.45-0.71 m), which Metropolis, without the animation, does not follow.
+  // (0.45-0.71 m), which an arena that imports its models follows by the legs'
+  // frame (sim.ts entityRadius); this is the walker's pose elsewhere.
   // Was 0.4, half the assembled model's footprint.
   283 / 512, // AVATAR      0.5527 m
   // Cobj 30's 483 (Hk's own tank 646, Joke's 369: MapData.radii). Was 0.76.
@@ -1860,6 +2265,15 @@ export const ARCHETYPE_RADIUS: readonly number[] = [
   // The Sky Captain at levels 0-2, Cobj 54's box 0: 671; SKY_RADIUS by level.
   671 / 512, // WARDEN      1.3105 m
 ];
+
+/**
+ * A round's contact reach where it or the body it meets has no imported hit
+ * boxes (the test maps, the sandbox, a console): Metropolis' flat circle, the
+ * body's radius plus this, about the round's position. On an arena that imports
+ * its models the round meets a body by the original's pair test instead, at its
+ * own model's radius (sim contact.ts; fcop-fidelity.md G1).
+ */
+export const ROUND_CONTACT_RADIUS = 0.5;
 
 /**
  * The hover's radius: the legs folded, frame 359 (the hover's held pose), 232,
@@ -2010,6 +2424,12 @@ export const WORLD_KIND_GUIDED = 3;
  */
 export const SHOOTER_FRONT_ARC_COS = 0.9238795325112867;
 /**
+ * How far a turret's gun pitches up or down, the original's 12-bit angle units:
+ * an eighth of a turn (`turret_tick` 0x0041c664 / 0x0041c672, RE turret.h
+ * TURRET_PITCH_LIMIT; fcop-fidelity.md G12).
+ */
+export const TURRET_PITCH_LIMIT = 0x200;
+/**
  * A round refused by the arc or by the terrain line of sight is put back and the
  * fire clock is pushed back by `(rand - 0x38) & 0xff` engine units, 0-0.85 s.
  */
@@ -2038,9 +2458,12 @@ export const TARGET_PRIORITY_AVATAR = 5;
  *     its own mount's yaw (the mounts since SIM_VERSION 77), no hold;
  *   2 tank and jet: weapon 1/6 — 50 dmg every 300 units (1.0 s), 12 m, re-search
  *     2.0 s;
- *   3 Flying Fortress: weapon 4 — guided 100 dmg every 150 units (0.5 s), flies
+ *   3 Flying Fortress: weapon 4 (bitfield 0x220: ALTERNATE, its muzzle flips
+ *     between its model's points 0 and 1 every round) — guided 100 dmg every 150 units (0.5 s), flies
  *     24 m, re-search 1.0 s;
  *   4 neutral turret (type 36): the team turret's gun without hold or priority.
+ * None has a round's hit boxes (`round` -1): an arena that imports no profiles
+ * imports no models either.
  */
 export const ORIGINAL_WEAPON_PROFILES = [
   {
@@ -2058,6 +2481,8 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 1,
     priority: 1,
+    alternate: 0,
+    round: -1,
   },
   {
     range: 12,
@@ -2074,6 +2499,8 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 0,
     priority: 0,
+    alternate: 0,
+    round: -1,
   },
   {
     range: 12,
@@ -2090,6 +2517,8 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: -1,
     hold: 0,
     priority: 0,
+    alternate: 0,
+    round: -1,
   },
   {
     range: 12,
@@ -2106,6 +2535,8 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: -1,
     hold: 0,
     priority: 0,
+    alternate: 1,
+    round: -1,
   },
   {
     range: 12,
@@ -2122,6 +2553,8 @@ export const ORIGINAL_WEAPON_PROFILES = [
     arcCos: SHOOTER_FRONT_ARC_COS,
     hold: 0,
     priority: 0,
+    alternate: 0,
+    round: -1,
   },
 ] as const;
 /** Indices into ORIGINAL_WEAPON_PROFILES (and every imported arena's table). */

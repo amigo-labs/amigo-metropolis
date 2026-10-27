@@ -30,8 +30,33 @@
 // Textured facers take the face's mode — add (tint x 2 / 255, ONE / ONE),
 // half (the bit-15 texels 50/50) or opaque — and the instance's team offset,
 // which `cact_model_shade_face` adds to every (u, v) (RE model_shade.c
-// 0x00427f0d). Not reproduced: the depth sort (each at its centre's depth
-// less 0x100; here the depth buffer tests them, after the opaque scene).
+// 0x00427f0d). A billboard, rect or line of an instance hit this tick takes
+// the damaged arms as a face does (render/damaged.ts; 0x00428ff0: an add's
+// tint and a colour with green and blue `shr 1`, a grey g as (g, g >> 1,
+// g >> 1), all doubled); a star does not pass through `cact_model_shade_face`
+// and keeps its colours.
+//
+// The sort (fcop-fidelity.md G13). The original has no depth buffer -- Glide's
+// `grDepthBufferMode(0)` (0x0043a5fd), THRASH's state 4 = 0
+// (`renderer_state_defaults` 0x00456ffe), the software walk none -- and draws
+// its display list by a bucket sort, far keys first (0x0040ca10: buckets
+// between the list's min and max key, each record pushed on its own; the walk
+// starts at the top bucket, each bucket linked to the one below, 0x00411490).
+// A facer's key is its point's view depth (a line's ends' mean, rounded toward
+// zero) less the walk's bias 0x100, 0.5 m (`cobj_prim_emit` 0x004288bf,
+// 0x0042895d, the line arm; `draw_disc_fan` for a star, disc_fan.c;
+// `cact_model_draw_prims` 0x004284ea: 0x100 unless the block's flag 0x08,
+// which no PA placement with a facer sets -- the eight Conft Props with
+// record bit 0 are Cobj 64, no facers; missiles bind with 0, missile.c 447; no
+// Sky Captain record carries spawn bit 0x8000). It is drawn whole over what
+// sorts farther and under what sorts nearer. A depth buffer stands in for the
+// sort: every corner moves along its own eye ray to the key's depth
+// (toKeyDepth), so the facer covers the same pixels and is tested in one piece
+// at the depth it sorts at. The terrain's keys are the plates' own means,
+// unbiased (`terrain_plate` 0x004539c9..0x00453a1d), so a glow on the ground
+// is drawn whole, as there. Not reproduced: a model's own faces carry the same
+// bias, so against them the original compares the unbiased keys; one depth
+// cannot do both, and the world's comparison is the one kept.
 //
 // Renderer rules: one dynamic batch per model and blend (render/fx/ribbons.ts'
 // RibbonBuffer: preallocated, rebuilt every frame, nothing allocated once the
@@ -41,7 +66,7 @@
 // every InstancedMesh this reads hangs at the identity.
 
 import * as THREE from "three";
-import type { FaceMode } from "./fcopModel";
+import { type FaceMode, HIT_ATTRIBUTE } from "./fcopModel";
 import { FX_OUTPUT, FxView } from "./fx/common";
 import { RibbonBuffer } from "./fx/ribbons";
 import { TEAM_UV_ATTR } from "./teamUv";
@@ -53,6 +78,8 @@ export const FACER_STAR = 3;
 
 /** View depth at or inside which a facer is dropped: 0x405 in the 512-a-metre view. */
 export const FACER_NEAR = 0x405 / 512;
+/** The walk's sort-key bias, 0x100 in the 512-a-metre view (`cact_model_draw_prims` 0x004284ea). */
+export const FACER_DEPTH_BIAS = 0x100 / 512;
 
 /** One facer, frame by frame. */
 export interface Facer {
@@ -68,6 +95,8 @@ export interface Facer {
   readonly uv: Float32Array | null;
   /** What the texel is multiplied by (display values): an add's tint x 2 / 255, else 1; a star's centre. */
   readonly colour: Float32Array;
+  /** The same on an instance hit this tick: the damaged arms (0x00428ff0). */
+  readonly hitColour: Float32Array;
   /** A star's rim colour, doubled. */
   readonly rim: Float32Array;
   readonly wedgeCap: number;
@@ -94,6 +123,7 @@ export interface FacerSet {
 interface RawFacer {
   kind?: string;
   mode?: string;
+  material?: number;
   rgb?: number[];
   uv?: number[][];
   texture?: number | null;
@@ -143,22 +173,36 @@ export function parseFacers(extras: unknown, turn = false): FacerSet | null {
       h[k * 2 + 1] = typeof v === "number" ? v : v[1];
     }
     const colour = new Float32Array(3);
+    const hitColour = new Float32Array(3);
     const rim = new Float32Array(3);
     if (kind === FACER_STAR) {
       doubled(f.centre_rgb, colour);
       doubled(f.rim_rgb, rim);
-    } else if (mode === "add") {
-      doubled(f.rgb, colour);
+      hitColour.set(colour);
     } else {
-      // The lighting materials are not exported: the texture drawn unlit, as
-      // every face is (render/fcopModel.ts).
-      colour.fill(1);
+      if (mode === "add") doubled(f.rgb, colour);
+      // No shipped facer is lit (RE objects.md "Face lighting"): two material-0
+      // lines at grey 0x80, which the palette arm draws at unity, the rest add.
+      else colour.fill(1);
+      damagedColour(f.material ?? (mode === "add" ? 6 : 0), f.rgb, hitColour, colour);
     }
     const textured = kind !== FACER_STAR && f.texture !== null && f.texture !== undefined && f.uv;
     const uv = textured ? Float32Array.from((f.uv ?? []).flatMap((c) => [c[0], c[1]])) : null;
     const ca = f.colour_anim;
     const anim = ca ? { speed: ca.speed, from: [...ca.from], to: [...ca.to] } : null;
-    facers.push({ kind, mode, a, b, h, uv, colour, rim, wedgeCap: f.wedge_cap ?? 4, anim });
+    facers.push({
+      kind,
+      mode,
+      a,
+      b,
+      h,
+      uv,
+      colour,
+      hitColour,
+      rim,
+      wedgeCap: f.wedge_cap ?? 4,
+      anim,
+    });
   }
   return facers.length > 0 ? { frames, facers } : null;
 }
@@ -184,6 +228,36 @@ export function colourAnimByte(anim: ColourAnim, clock: number, c: number): numb
   const from = anim.from[c];
   const span = (anim.to[c] - from + 1) * t;
   return (((span + ((span >> 31) & 0x7ff)) >> 11) + from) & 0xff;
+}
+
+/**
+ * A billboard's, rect's or line's colour through the damaged table
+ * (0x00428ff0): grey g as (g, g >> 1, g >> 1), a colour or an add's tint with
+ * green and blue `shr 1`, then doubled (mode 0x30; clamped but on an add,
+ * whose excess the walk draws in a second pass). gen:units does not carry a
+ * facer's material: an add facer is 6 and the rest are 0, the only other one
+ * shipped. A lit material (none is shipped on a facer) keeps `fallback`.
+ */
+function damagedColour(
+  material: number,
+  rgb: readonly number[] | undefined,
+  out: Float32Array,
+  fallback: Float32Array,
+): void {
+  const c = rgb ?? [0x80, 0x80, 0x80];
+  if (material === 6) {
+    doubled([c[0], c[1] >> 1, c[2] >> 1], out);
+    return;
+  }
+  // A solid face's colour, doubled and clamped (THRASH `rgb_doubled` 0x00456a49).
+  const solid = (r: number, g: number, b: number) => {
+    out[0] = Math.min(2 * r, 0xff) / 0xff;
+    out[1] = Math.min(2 * g, 0xff) / 0xff;
+    out[2] = Math.min(2 * b, 0xff) / 0xff;
+  };
+  if (material === 0) solid(c[0], c[0] >> 1, c[0] >> 1);
+  else if (material === 1) solid(c[0], c[1] >> 1, c[2] >> 1);
+  else out.set(fallback);
 }
 
 /** A colour's bytes doubled, 0x80 unity (colour mode 0x30 / 0x50). */
@@ -275,6 +349,24 @@ export function lineCorners(
   out[9] = x1 + wx * h1;
   out[10] = y1 + wy * h1;
   out[11] = z1 + wz * h1;
+}
+
+/**
+ * Moves `n` points of `out` (xyz each) along their own eye rays to view depth
+ * `key`: the same pixels, one depth -- the facer's sort key standing in for the
+ * original's bucket sort. A point at depth d goes to eye + (p - eye) key / d.
+ */
+export function toKeyDepth(view: FxView, out: Float32Array, n: number, key: number): void {
+  const p = view.pos;
+  for (let k = 0; k < n; k++) {
+    const o = k * 3;
+    const d = viewDepth(view, out[o], out[o + 1], out[o + 2]);
+    if (d <= 0) continue;
+    const f = key / d;
+    out[o] = p.x + (out[o] - p.x) * f;
+    out[o + 1] = p.y + (out[o + 1] - p.y) * f;
+    out[o + 2] = p.z + (out[o + 2] - p.z) * f;
+  }
 }
 
 /**
@@ -522,6 +614,11 @@ function drawSource(src: Source): void {
     ? (src.mesh.geometry.getAttribute(TEAM_UV_ATTR) as THREE.InstancedBufferAttribute | undefined)
     : undefined;
   const teamArray = team ? (team.array as Float32Array) : null;
+  // The instance's CACT_FLAG_DAMAGED, where its mesh carries one (render/damaged.ts).
+  const hitAttr = src.mesh.geometry.getAttribute(HIT_ATTRIBUTE) as
+    | THREE.InstancedBufferAttribute
+    | undefined;
+  const hits = hitAttr ? (hitAttr.array as Float32Array) : null;
   const count = src.mesh.count;
   const facers = src.set.facers;
   for (let i = 0; i < count; i++) {
@@ -559,19 +656,24 @@ function drawSource(src: Source): void {
         const x1 = m[o] * bx + m[o + 4] * by + m[o + 8] * bz + m[o + 12];
         const y1 = m[o + 1] * bx + m[o + 5] * by + m[o + 9] * bz + m[o + 13];
         const z1 = m[o + 2] * bx + m[o + 6] * by + m[o + 10] * bz + m[o + 14];
-        if (viewDepth(view, x1, y1, z1) <= FACER_NEAR) continue;
+        const d1 = viewDepth(view, x1, y1, z1);
+        if (d1 <= FACER_NEAR) continue;
         lineCorners(view, x0, y0, z0, x1, y1, z1, h0, h1, corners);
+        // The ends' mean less the bias (the line arm's `(z1 + z0) / 2 - bias`).
+        toKeyDepth(view, corners, 4, (d0 + d1) / 2 - FACER_DEPTH_BIAS);
       } else {
         billboardCorners(view, x0, y0, z0, h0, h1, corners);
+        // The point's depth less the bias (0x004288bf, 0x0042895d).
+        toKeyDepth(view, corners, 4, d0 - FACER_DEPTH_BIAS);
       }
-      quad(buf, f, du, dv);
+      quad(buf, f, du, dv, hits !== null && hits[i] > 0.5);
     }
   }
 }
 
-function quad(buf: RibbonBuffer, f: Facer, du: number, dv: number): void {
+function quad(buf: RibbonBuffer, f: Facer, du: number, dv: number, hit: boolean): void {
   if (!buf.room(4, 2) || !f.uv) return;
-  const c = f.colour;
+  const c = hit ? f.hitColour : f.colour;
   const uv = f.uv;
   const base = buf.v;
   for (let k = 0; k < 4; k++) {
@@ -603,17 +705,26 @@ function star(
   if (!buf.room(n + 2, n)) return;
   const c = f.colour;
   const rim = f.rim;
+  // The disc in the view plane at its point's depth, moved along the eye rays
+  // to its key, that depth less the bias (`draw_disc_fan`, disc_fan.c 117):
+  // the same pixels, one nearer depth.
+  const s = (depth - FACER_DEPTH_BIAS) / depth;
+  const p = view.pos;
   const r = view.right;
   const u = view.up;
-  const centre = buf.vertex(x, y, z, c[0], c[1], c[2], 0, 0);
+  const kx = p.x + (x - p.x) * s;
+  const ky = p.y + (y - p.y) * s;
+  const kz = p.z + (z - p.z) * s;
+  const kr = radius * s;
+  const centre = buf.vertex(kx, ky, kz, c[0], c[1], c[2], 0, 0);
   for (let k = 0; k <= n; k++) {
     const t = (k * 2 * Math.PI) / n;
-    const cx = Math.cos(t) * radius;
-    const sy = Math.sin(t) * radius;
+    const cx = Math.cos(t) * kr;
+    const sy = Math.sin(t) * kr;
     buf.vertex(
-      x + r.x * cx + u.x * sy,
-      y + r.y * cx + u.y * sy,
-      z + r.z * cx + u.z * sy,
+      kx + r.x * cx + u.x * sy,
+      ky + r.y * cx + u.y * sy,
+      kz + r.z * cx + u.z * sy,
       rim[0],
       rim[1],
       rim[2],

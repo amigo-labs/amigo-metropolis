@@ -9,6 +9,7 @@ export * from "./events";
 export * from "./hash";
 export * from "./inputs";
 export * from "./map";
+export * from "./orient";
 export * from "./protocol";
 export * from "./reach";
 export * from "./replay";

@@ -69,6 +69,7 @@ import {
   spawnUnit,
   step,
   TICK_HZ,
+  TILT_SNAPSHOT_LEN,
   type TickInputs,
   URBAN_JUNGLE_ID,
   wardenLevel,
@@ -79,6 +80,7 @@ import {
   writeMatchSnapshot,
   writeResultsSnapshot,
   writeSnapshot,
+  writeTiltSnapshot,
 } from "@metropolis/sim";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -111,6 +113,7 @@ import {
   createInGameMenu,
   difficultyFromParams,
   extraFromParams,
+  finishedMapEndsSession,
   loadoutFromParams,
   type MenuChoice,
   type MenuHandle,
@@ -144,6 +147,7 @@ import {
   vecMagnitudeWu,
 } from "./render/cameraShake";
 import { makeTerrainHit, makeTerrainTrace } from "./render/cameraTrace";
+import { isHit, noteHits } from "./render/damaged";
 import { setDecalWindow } from "./render/decals";
 import {
   cellXOf,
@@ -156,7 +160,7 @@ import {
   placeDrawWindow,
   updateLeafView,
 } from "./render/drawWindow";
-import { lerpGunYaws } from "./render/dreadnoughtGuns";
+import { lerpGunYaws, lerpTurretPitch } from "./render/dreadnoughtGuns";
 import {
   emitterHungAt,
   emitterPropAt,
@@ -170,8 +174,10 @@ import { createFx, createFxPoses, POSE_STRIDE } from "./render/fx";
 import { bucketFor, createGreyboxMeshes } from "./render/greybox";
 import { type CameraCaption, createCameraCaption } from "./render/hud/caption";
 import { createMatchHud, type MatchHud } from "./render/hud/hud";
+import { hudScale } from "./render/hud/hudLayout";
 import { snapshotIndexOf } from "./render/hud/hudRules";
 import { loadLifts, updateLifts } from "./render/lifts";
+import { createLockBeam } from "./render/lockBeam";
 import {
   createMapScreen,
   mapBounds,
@@ -209,10 +215,10 @@ import {
   type VariantSwitcher,
   variantOfPref,
 } from "./render/texVariants";
+import { tiltQuat } from "./render/tilt";
 import { loadUnitMeshes } from "./render/unitMeshes";
 import {
   aimPitchModel,
-  aimX1,
   aimYawModel,
   createX1Walk,
   tickX1Walk,
@@ -363,6 +369,8 @@ if (params.has("debug") && !netMode) {
     } | null;
     /** Live effect instances per class (render/fx.ts). */
     metropolisFx?: () => ReturnType<typeof fx.debugCounts>;
+    /** Whether the latest step hit entity `id`: the damaged arms (render/damaged.ts). */
+    metropolisHit?: (id: number) => boolean;
     /** The world row a round was matched to (effects/rounds.ts), 0 unknown. */
     metropolisRoundRow?: (id: number) => number;
     /**
@@ -474,6 +482,7 @@ if (params.has("debug") && !netMode) {
           aimPitch: x1Walk.aimPitch[slot],
         };
   dbg.metropolisFx = () => fx.debugCounts();
+  dbg.metropolisHit = (id) => isHit(id);
   dbg.metropolisRoundRow = (id) => sounds.effects.rounds.row[id] ?? 0;
   const debugRaise = makeRaiseAt();
   dbg.metropolisFxRaise = (bank, id, x, height, z, archetype, team) => {
@@ -571,6 +580,10 @@ function sizeLiftSnapshots(lifts: number): boolean {
 // per entity id, the hull's guns relative to it. Read for a Juggernaut only.
 let gunPrev = new Float32Array(GUN_SNAPSHOT_LEN);
 let gunCurr = new Float32Array(GUN_SNAPSHOT_LEN);
+// The bodies' model forward and up, two ticks (writeTiltSnapshot): a route
+// follower's hull and an aircraft, per entity id (render/tilt.ts).
+let tiltPrev = new Float32Array(TILT_SNAPSHOT_LEN);
+let tiltCurr = new Float32Array(TILT_SNAPSHOT_LEN);
 /** One Juggernaut's gun yaws this frame, between the two ticks (renderEntities). */
 const gunYaws = new Float32Array(GUN_SNAP_STRIDE);
 
@@ -956,6 +969,7 @@ const shatterModel = {
 const shatterUv = new Float32Array(2);
 const fx = createFx(scene, sounds.effects, {
   poses: fxPoses,
+  launchRecord: (payload) => sounds.launchRecord(payload),
   ground: (x, z) => sampleHeight(map, x, z),
   shatter: (archetype, team) => {
     const b = bucketFor(greybox, archetype, 0, 0);
@@ -1205,11 +1219,15 @@ function refreshCapture(): void {
 // Captain), the Camera Key quits; online only the Camera Key.
 const results = createResultsPage({
   bindings: () => keyboard.getTable(),
-  onAgain: () => afterPostMovie(rematchSolo),
+  // On Bug Hunt a round that finished the map goes back to the front end on
+  // another round too (frame_step_game 0x004097a8).
+  onAgain: () => afterPostMovie(postMovieEnds ? returnToMenu : rematchSolo),
   onQuit: () => afterPostMovie(returnToMenu),
 });
 /** A won round finished the map: its po_*.mpg plays before either way out. */
 let postMovieDue = false;
+/** ... and the map was Bug Hunt: another round leaves for the front end too. */
+let postMovieEnds = false;
 let postMoviePlaying = false;
 /**
  * frame_step_game runs after the results page, whichever key left it, and
@@ -1243,6 +1261,7 @@ function resetMatchEnd(): void {
   winSeenAtMs = -1;
   matchEndShown = false;
   postMovieDue = false;
+  postMovieEnds = false;
   results.close();
 }
 
@@ -1256,6 +1275,7 @@ function showMatchEnd(winner: number): void {
   // one that finishes the map plays its post-mission movie on the way out.
   postMovieDue =
     warden && !net && winner === slot && recordSoloWin(map.id, wardenDifficulty) === "finished";
+  postMovieEnds = postMovieDue && finishedMapEndsSession(map.id);
   writeResultsSnapshot(sim, resultsSnap);
   // LEVEL is the Sky Captain's, one viewport only; the next round after a win
   // plays the level above it (results.c 0x00408121).
@@ -1677,6 +1697,8 @@ function wrapAngleDelta(d: number): number {
 // Set once the match starts (after the lobby, if any).
 let views: PlayerView[] = [];
 let matchHud: MatchHud | undefined;
+/** The lock beam, in the scene (render/lockBeam.ts). */
+const lockBeam = createLockBeam(scene);
 const viewBySlot: (PlayerView | undefined)[] = new Array(MAX_PLAYERS).fill(undefined);
 let orbitControls: OrbitControls | undefined;
 
@@ -1793,6 +1815,8 @@ function resolveEventPosition(
 
 /** Audio + VFX share the event buffer; VFX resolves positions here. */
 function pumpCosmetics(events: typeof sim.events): void {
+  // The damaged arms: this step's hits draw red until the next (render/damaged.ts).
+  noteHits(events);
   buildAudioIndex();
   pumpShake(events);
   pumpSounds(events);
@@ -1889,36 +1913,15 @@ function groundUnder(x: number, z: number): number {
 
 /**
  * One sim tick of the X1s' animation (render/x1Walk.ts): the avatar snapshot,
- * the sim machine's frames, form and codes off it, then the cockpit's aim. Runs
+ * the sim machine's frames, form, codes and the cockpit's aim off it. Runs
  * after every sim step and before the sounds, which play the legs' codes the
  * same tick (audio/cues.ts).
  */
 function animateAvatars(stepped: SimState): void {
   writeAvatarSnapshot(stepped, avatarSnap);
+  // The frames, form and codes, and the cockpit's aim the sim stepped toward
+  // the lock (orient.ts systemCockpitAim).
   tickX1Walk(x1Walk, avatarSnap);
-  for (let p = 0; p < MAX_PLAYERS; p++) {
-    const avatar = matchSnap[matchSlotOffset(p) + MATCH_SLOT_AVATAR_ID] | 0;
-    const lock = matchSnap[matchSlotOffset(p) + MATCH_SLOT_LOCK] | 0;
-    const a = avatar >= 0 ? snapshotIndexOf(snapCurr, countCurr, avatar) : -1;
-    const t = lock >= 0 && a >= 0 ? snapshotIndexOf(snapCurr, countCurr, lock) : -1;
-    if (a < 0 || t < 0) {
-      aimX1(x1Walk, p, false, 0, 0, 0, 0);
-      continue;
-    }
-    const ao = a * SNAPSHOT_STRIDE;
-    const to = t * SNAPSHOT_STRIDE;
-    // From the cockpit's mount to the target's middle (the lock beam's end).
-    const mount = avatarRig ? avatarRig.mountHeight(x1Walk.legsFrame[p]) : 0;
-    aimX1(
-      x1Walk,
-      p,
-      true,
-      snapCurr[to + 3] - snapCurr[ao + 3],
-      snapCurr[to + 4] - snapCurr[ao + 4],
-      snapCurr[to + 5] + LOCK_TO_LIFT - (snapCurr[ao + 5] + mount),
-      snapCurr[ao + 6],
-    );
-  }
 }
 
 function rotateSnapshot(): void {
@@ -1946,6 +1949,10 @@ function rotateSnapshot(): void {
   gunPrev = gunCurr;
   gunCurr = gunSwap;
   writeGunSnapshot(sim, gunCurr);
+  const tiltSwap = tiltPrev;
+  tiltPrev = tiltCurr;
+  tiltCurr = tiltSwap;
+  writeTiltSnapshot(sim, tiltCurr);
 }
 
 function renderEntities(alpha: number, simDtSec: number): void {
@@ -2070,6 +2077,7 @@ function renderEntities(alpha: number, simDtSec: number): void {
         known ? aimPitchModel(x1Walk.aimPitch[slot]) : 0,
         cloaked ? cloakV : -1,
         known ? x1DrawForm(x1Walk, slot) : hovering ? X1_FORM_HOVER : X1_FORM_WALKER,
+        isHit(id),
       );
     } else if (bucket) {
       const slot = bucket.count;
@@ -2090,6 +2098,18 @@ function renderEntities(alpha: number, simDtSec: number): void {
       // sim (x, y, height, yaw) → three (x, height, z, rotationY = -yaw)
       scratchPos.set(x, height, y);
       scratchQuat.setFromAxisAngle(UP, -yaw);
+      // A route follower's hull and an aircraft turn by their matrix: the
+      // slope's pitch, the bank, the crash's tumble (render/tilt.ts). Every
+      // arena unit's mesh keeps its model's origin (gen:units), which is the
+      // sim's position: no lift to take off.
+      tiltQuat(
+        tiltPrev,
+        tiltCurr,
+        id,
+        alpha,
+        hasPrev && snapPrev[po + 1] === archetype,
+        scratchQuat,
+      );
       // A shell points where it is going, in the vertical too. The snapshot
       // carries no vertical velocity, but the two ticks being interpolated
       // between do: rise over run across that step IS the flight angle. Costs
@@ -2112,6 +2132,12 @@ function renderEntities(alpha: number, simDtSec: number): void {
         const gunsPrev = hasPrev && snapPrev[po + 1] === archetype;
         lerpGunYaws(gunPrev, gunCurr, id, alpha, gunsPrev, gunYaws);
       }
+      // A turret's gun pitches on its base (fcop-fidelity.md G12), between the
+      // two ticks like its yaw.
+      const gunPitch =
+        archetype === ARCHETYPE.TURRET
+          ? lerpTurretPitch(gunPrev, gunCurr, id, alpha, hasPrev && snapPrev[po + 1] === archetype)
+          : 0;
       // Matrix, parts (a turret's base and a Dreadnought's guns) and team
       // colour (render/arenaUnits.ts).
       units.place(
@@ -2126,6 +2152,7 @@ function renderEntities(alpha: number, simDtSec: number): void {
         scratchQuat,
         scratchScale,
         gunYaws,
+        gunPitch,
       );
     }
   }
@@ -2244,7 +2271,11 @@ function renderMapScreen(dtSec: number): void {
   for (let i = 0; i < mapHidden.length; i++) mapHidden[i].visible = true;
 }
 
-/** The lock's two ends above the entities' feet, m: the X1's gun, the target's middle. */
+/**
+ * The lock's two ends above the entities' feet, m: the beam's start before the
+ * X1's rig has loaded (then it leaves the cockpit's model point 0), the
+ * target's middle.
+ */
 const LOCK_FROM_LIFT = 0.6;
 const LOCK_TO_LIFT = 0.5;
 
@@ -2267,7 +2298,17 @@ function refreshMatchHud(view: PlayerView, alpha: number): void {
   ov.cy = mapScreen.cy;
   ov.halfX = mapWin[0];
   ov.halfY = mapWin[1];
-  hud.refresh(matchSnap, snapCurr, countCurr, clock, pose[0], pose[1], pose[5]);
+  hud.refresh(
+    matchSnap,
+    snapCurr,
+    countCurr,
+    snapPrev,
+    countPrev,
+    clock,
+    pose[0],
+    pose[1],
+    pose[5],
+  );
   hud.map.draw(
     mapScreen.open,
     matchSnap,
@@ -2277,20 +2318,30 @@ function refreshMatchHud(view: PlayerView, alpha: number): void {
     mapScreen.cx,
     mapScreen.cy,
     mapWin[2],
-    view.slot,
   );
-  if (mapScreen.open) {
-    hud.drawLock(view.camera, false, 0, 0, 0, 0, 0, 0, 1);
+  if (mapScreen.open || !lockTarget(view, alpha, lockPoint)) {
+    hud.drawLock(view.camera, false, 0, 0, 0);
     return;
   }
+  hud.drawLock(view.camera, true, lockPoint[0], lockPoint[1], lockPoint[2]);
+}
+
+/** The lock's target point and the beam's near end, three frame (x, height, sim y). */
+const lockPoint = new Float32Array(3);
+const beamFrom = new Float32Array(3);
+
+/**
+ * The locked target's point for `view` (its middle, interpolated) into `out`;
+ * false while there is no lock, the X1 is down or unseen (hud_draw_lock_beam's
+ * gates: no `cact_view::lock`, `CACT_FLAG_DYING`).
+ */
+function lockTarget(view: PlayerView, alpha: number, out: Float32Array): boolean {
+  const pose = avatarPoses[view.slot];
   const mine = matchSlotOffset(view.slot);
   const lock = matchSnap[mine + MATCH_SLOT_LOCK] | 0;
   const down = (matchSnap[mine + MATCH_SLOT_RESPAWN_TICKS] | 0) > 0;
   const c = lock >= 0 && !down && pose[3] !== 0 ? snapshotIndexOf(snapCurr, countCurr, lock) : -1;
-  if (c < 0) {
-    hud.drawLock(view.camera, false, 0, 0, 0, 0, 0, 0, 1);
-    return;
-  }
+  if (c < 0) return false;
   const o = c * SNAPSHOT_STRIDE;
   let tx = snapCurr[o + 3];
   let ty = snapCurr[o + 5];
@@ -2302,12 +2353,64 @@ function refreshMatchHud(view: PlayerView, alpha: number): void {
     ty = snapPrev[po + 5] + (ty - snapPrev[po + 5]) * alpha;
     tz = snapPrev[po + 4] + (tz - snapPrev[po + 4]) * alpha;
   }
-  ty += LOCK_TO_LIFT;
-  const fx = pose[0];
-  const fy = pose[2] + LOCK_FROM_LIFT;
-  const fz = pose[1];
+  out[0] = tx;
+  out[1] = ty + LOCK_TO_LIFT;
+  out[2] = tz;
+  return true;
+}
+
+/**
+ * The lock beam in the scene (render/lockBeam.ts), for `view` posed: from the
+ * cockpit's model point 0 (hud_draw_lock_beam 0x00435382) to the first terrain
+ * hit toward the target. Before the view is rendered; hidden on the map screen.
+ */
+function placeLockBeam(view: PlayerView, alpha: number): void {
+  const pose = avatarPoses[view.slot];
+  if (!matchHud || mapScreen.open || !lockTarget(view, alpha, lockPoint)) {
+    lockBeam.set(view.camera, false, 0, 0, 0, 0, 0, 0, 1, 1, 1);
+    return;
+  }
+  const slot = view.slot;
+  const known = x1Walk.owner[slot] >= 0;
+  if (
+    !avatarRig?.beamPoint(
+      pose[0],
+      pose[2],
+      pose[1],
+      pose[5],
+      known ? x1Walk.legsFrame[slot] : 0,
+      known ? x1Walk.cockpitFrame[slot] : 0,
+      known ? aimYawModel(x1Walk.aimYaw[slot]) : 0,
+      known ? aimPitchModel(x1Walk.aimPitch[slot]) : 0,
+      beamFrom,
+    )
+  ) {
+    beamFrom[0] = pose[0];
+    beamFrom[1] = pose[2] + LOCK_FROM_LIFT;
+    beamFrom[2] = pose[1];
+  }
+  const fx = beamFrom[0];
+  const fy = beamFrom[1];
+  const fz = beamFrom[2];
+  const tx = lockPoint[0];
+  const ty = lockPoint[1];
+  const tz = lockPoint[2];
   const hit = lockHit(fx, fy, fz, tx, ty, tz);
-  hud.drawLock(view.camera, true, fx, fy, fz, tx, ty, tz, hit);
+  const vp = view.viewport;
+  view.camera.updateMatrixWorld();
+  lockBeam.set(
+    view.camera,
+    true,
+    fx,
+    fy,
+    fz,
+    fx + (tx - fx) * hit,
+    fy + (ty - fy) * hit,
+    fz + (tz - fz) * hit,
+    vp.width,
+    vp.height,
+    hudScale(vp.width, vp.height),
+  );
 }
 
 // --- HUD (1 Hz, host-side debug UI; reads sim directly) ----------------------
@@ -2463,6 +2566,8 @@ function frame(now: number): void {
   const alpha = accumulator / TICK_MS;
   const simDtSec = advanceSimClock(alpha);
   renderEntities(alpha, simDtSec);
+  // Shown only where view 0 places it this frame (placeLockBeam).
+  lockBeam.mesh.visible = false;
   if (views.length === 0) {
     // A match with no views yet (the menu and the connecting card return
     // above): the flyover.
@@ -2498,6 +2603,8 @@ function frame(now: number): void {
       // The models' camera-facing facers, on every instance matrix written
       // this frame (render/facers.ts), turned to the local view's camera.
       if (v === 0) drawFacers(view.camera, renderer.domElement.height);
+      // The lock beam on the posed camera, sorted among the scene's blended draws.
+      if (v === 0) placeLockBeam(view, alpha);
       const vp = view.viewport;
       const yBottom = innerHeight - (vp.top + vp.height); // three uses lower-left origin
       renderer.setViewport(vp.left, yBottom, vp.width, vp.height);
@@ -2580,6 +2687,8 @@ function resetForMatch(newSim: SimState): void {
   writeLiftSnapshot(sim, liftCurr);
   liftPrev.set(liftCurr);
   writeGunSnapshot(sim, gunCurr);
+  writeTiltSnapshot(sim, tiltCurr);
+  tiltPrev.set(tiltCurr);
   if (params.has("debug")) (globalThis as { metropolisSim?: SimState }).metropolisSim = sim;
 }
 

@@ -59,8 +59,9 @@ import {
   UNIT_MODEL_FILES,
   type UnitMorph,
 } from "./arenaUnits.generated";
+import { createHitAttribute, isHit, writeHit } from "./damaged";
 import { type FacerSet, parseFacers, registerFacers } from "./facers";
-import { materialList, materialMap } from "./fcopModel";
+import { HIT_ATTRIBUTE, materialList, materialMap } from "./fcopModel";
 import type { Bucket, GreyboxMeshes } from "./greybox";
 import { SIDE_RAMPS } from "./palette";
 import { BAKED_TURN, recordYaw, yawTurn } from "./recordYaw";
@@ -246,6 +247,25 @@ export function gunMatrix(
  * (bakedPoint): `[frame][gun][x, y, z]`, frame k at row k. A hull of one frame
  * is one row, the guns' `point`. Built at arena load.
  */
+/**
+ * A turret gun's turn (fcop-fidelity.md G12): the entity's `quat`, then its
+ * elevation `pitch` (radians, positive raising the muzzle; writeGunSnapshot's
+ * GUN_SNAP_TURRET_PITCH) about its own origin. The original builds the gun's
+ * placement as `math_matrix_from_angles(yaw, pitch, 0)` (RE turret.c, 0x0041c7a9):
+ * the pitch about the model's x first, then the yaw. The glb negates x and the
+ * part's geometry carries the units' quarter turn (bakedPoint: glb x is baked
+ * -z), so the pitch is a turn about baked +z, which takes the gun's forward (+x)
+ * up for a positive angle.
+ */
+export function turretGunQuat(
+  quat: THREE.Quaternion,
+  pitch: number,
+  out: THREE.Quaternion,
+): THREE.Quaternion {
+  scratchPitchQuat.setFromAxisAngle(PITCH_Z, pitch);
+  return out.copy(quat).multiply(scratchPitchQuat);
+}
+
 export interface GunPointTable {
   readonly frames: number;
   readonly xyz: Float32Array;
@@ -327,6 +347,12 @@ export interface ArenaUnitsRenderer {
      * writeGunSnapshot, render/dreadnoughtGuns.ts). Read for a Juggernaut only.
      */
     guns: Float32Array,
+    /**
+     * A turret's gun elevation, radians, positive up (main.ts interpolates
+     * writeGunSnapshot's GUN_SNAP_TURRET_PITCH, render/dreadnoughtGuns.ts
+     * lerpTurretPitch). Read for a turret whose gun stands on its base only.
+     */
+    pitch: number,
   ): void;
   /** Publishes the part buckets' counts and matrices. Call after the sweep. */
   end(): void;
@@ -390,6 +416,10 @@ const scratchMatrix = new THREE.Matrix4();
 const scratchRest = new THREE.Quaternion();
 const scratchAt = new THREE.Vector3();
 const scratchGunPoint = new THREE.Vector3();
+const scratchGunQuat = new THREE.Quaternion();
+const scratchPitchQuat = new THREE.Quaternion();
+/** The baked frame's +z: the glb's x (bakedPoint), the axis the original's Mx turns about. */
+const PITCH_Z = new THREE.Vector3(0, 0, 1);
 
 /** A unit file once loaded: its geometry and facers turned onto the sim's +x. */
 interface TurnedAsset extends UnitAsset {
@@ -466,6 +496,7 @@ function colour(bucket: Bucket, binding: UvBinding | undefined, slot: number, te
 function wrapGeometry(
   source: THREE.BufferGeometry,
   attr: THREE.InstancedBufferAttribute,
+  hit: THREE.InstancedBufferAttribute,
 ): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   for (const name of Object.keys(source.attributes)) g.setAttribute(name, source.attributes[name]);
@@ -475,6 +506,8 @@ function wrapGeometry(
   g.morphAttributes = source.morphAttributes;
   g.morphTargetsRelative = source.morphTargetsRelative;
   g.setAttribute(TEAM_UV_ATTR, attr);
+  // Its per-instance CACT_FLAG_DAMAGED (render/damaged.ts).
+  g.setAttribute(HIT_ATTRIBUTE, hit);
   return g;
 }
 
@@ -555,6 +588,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
   const tracks = new TrackClock();
   /** Per bucket, the wrapped geometry of every file it has shown. */
   const wrapped = new Map<Bucket, Map<string, THREE.BufferGeometry>>();
+  /** Per bucket, its instances' hit flags (render/damaged.ts), shared by its files. */
+  const hits = new Map<Bucket, THREE.InstancedBufferAttribute>();
 
   function swap(bucket: Bucket, file: string, uv: SideUv, cancelled: () => boolean): Promise<void> {
     return assetOf(file).then(
@@ -574,9 +609,14 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
             byFile = new Map();
             wrapped.set(bucket, byFile);
           }
+          let hit = hits.get(bucket);
+          if (!hit) {
+            hit = createHitAttribute(bucket.tintCache.length);
+            hits.set(bucket, hit);
+          }
           let geometry = byFile.get(file);
           if (!geometry) {
-            geometry = wrapGeometry(asset.geometry, attr);
+            geometry = wrapGeometry(asset.geometry, attr, hit);
             byFile.set(file, geometry);
           }
           bucket.mesh.geometry = geometry;
@@ -758,7 +798,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       out[1] = binding.bySide[side * 2 + 1];
       return true;
     },
-    place(bucket, slot, id, archetype, team, x, y, pos, quat, scale, guns) {
+    place(bucket, slot, id, archetype, team, x, y, pos, quat, scale, guns, pitch) {
       if (archetype === ARCHETYPE.CONSOLE) {
         // The console's team is its outpost's owner (sim claimOutpostSlot).
         const k = consoles.get(spotKey(x, y));
@@ -767,7 +807,7 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
       const set = archetype === ARCHETYPE.TURRET ? turretSet(bucket) : null;
       if (set?.ready) {
         // The base keeps its record's yaw; the gun stands on the base's
-        // attach point 0 and turns with the entity. A turret the map does not
+        // attach point 0, turns with the entity and pitches on its own. A turret the map does not
         // place (a sandbox spawn) turns as one piece. The part's geometry
         // carries the units' quarter turn baked (render/recordYaw.ts).
         const rest = spots.restYaw.get(restKey(x, y, set !== defense, team));
@@ -778,14 +818,19 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
           scratchMatrix.compose(pos, scratchRest, scale);
           set.base.mesh.setMatrixAt(baseSlot, scratchMatrix);
           colour(set.base, bindings.get(set.base), baseSlot, team);
+          // The parts take their owner's damaged flag (RE turret.c 674-690).
+          writeHit(set.base.mesh, baseSlot, isHit(id));
         }
         scratchAt.copy(set.point).multiply(scale).applyQuaternion(scratchRest).add(pos);
-        scratchMatrix.compose(scratchAt, quat, scale);
+        // And pitches there, about its own origin (fcop-fidelity.md G12).
+        scratchMatrix.compose(scratchAt, turretGunQuat(quat, pitch, scratchGunQuat), scale);
       } else {
         scratchMatrix.compose(pos, quat, scale);
       }
       bucket.mesh.setMatrixAt(slot, scratchMatrix);
       colour(bucket, bindings.get(bucket), slot, team);
+      // Red the frame after a hit: the damaged arms (render/damaged.ts).
+      writeHit(bucket.mesh, slot, isHit(id));
       const morph = morphs.get(bucket);
       let frame = 0;
       if (morph) {
@@ -815,6 +860,8 @@ export function createArenaUnits(scene: THREE.Scene, greybox: GreyboxMeshes): Ar
             gunMatrix(scratchMatrix, scratchGunPoint, guns[i], scratchGunOut),
           );
           colour(gb, bindings.get(gb), gs, team);
+          // A mount takes its hull's damaged flag (RE mount.c 0x0042580a).
+          writeHit(gb.mesh, gs, isHit(id));
         }
       }
     },

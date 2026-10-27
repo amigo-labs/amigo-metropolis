@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARCHETYPE } from "../src/archetypes";
 import {
+  ARCHETYPE_MAX_HP,
   AVATAR_HP,
   AVATAR_LOCK_RANGE,
   DIFFICULTY_EASY,
@@ -20,10 +21,12 @@ import {
   TICK_HZ,
   WEAPON_UNITS_PER_TICK,
 } from "../src/balance";
+import { spawn } from "../src/entities";
 import {
   directionAxis,
   EV_DEATH,
   EV_EXPLOSION,
+  EV_GUN_ARC,
   EV_KILL_PUSH,
   EV_SHOT,
   EVENT_STRIDE,
@@ -40,7 +43,7 @@ import {
   type MapJson,
   resolveHeight,
 } from "../src/map";
-import { createSim, type SimState, step } from "../src/sim";
+import { createSim, type SimState, spawnUnit, step } from "../src/sim";
 import {
   DEFAULT_LOADOUT,
   difficultyAmmo,
@@ -712,21 +715,116 @@ describe("mines and the pulse", () => {
     // 600 * (5.6 - 2.2) / 5.6, truncated.
     expect(AVATAR_HP - sim.ent.hp[a1]).toBe(Math.floor((600 * (5.599609375 - 2.2)) / 5.599609375));
   });
+});
 
-  test("the Shockwave Generator hits everything within 6 m for its full 300", () => {
-    const { sim, a1, inputs } = duel({ special: 2 }, 5);
-    inputs.players[0].buttons = BTN_SPECIAL;
-    step(sim, inputs);
-    expect(sim.ent.hp[a1]).toBe(AVATAR_HP); // the first tick held is not yet "held"
-    step(sim, inputs);
-    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 300);
+/**
+ * The sustained weapons spread their damage as the original's effects do
+ * (fcop-fidelity.md W1; RE M3-OR; sim sustain.ts): the flame's trail nodes,
+ * the beam's segment, the shockwave's expanding band.
+ */
+describe("the sustained weapons' trails and shells", () => {
+  /** A hostile body that stands still: a team-1 runner, re-placed every tick. */
+  function body(sim: SimState, x: number, y: number): number {
+    const b = spawn(sim.ent, ARCHETYPE.RUNNER, 1);
+    sim.ent.posX[b] = x;
+    sim.ent.posY[b] = y;
+    sim.ent.hp[b] = 5000;
+    return b;
+  }
+  /** Steps `ticks` ticks holding `buttons` for the first `hold`, logging every body's hp changes. */
+  function play(
+    sim: SimState,
+    inputs: ReturnType<typeof createTickInputs>,
+    buttons: number,
+    hold: number,
+    ticks: number,
+    bodies: number[],
+    keep: () => void,
+  ): { tick: number; id: number; dmg: number }[] {
+    const out: { tick: number; id: number; dmg: number }[] = [];
+    const last = bodies.map((b) => sim.ent.hp[b]);
+    for (let t = 0; t < ticks; t++) {
+      inputs.players[0].buttons = t < hold ? buttons : 0;
+      keep();
+      step(sim, inputs);
+      bodies.forEach((b, i) => {
+        if (sim.ent.hp[b] !== last[i]) out.push({ tick: t, id: b, dmg: last[i] - sim.ent.hp[b] });
+        last[i] = sim.ent.hp[b];
+      });
+    }
+    return out;
+  }
+
+  test("a body in the flame stream takes 6 from each node, one every 2 ticks, and stops the stream", () => {
+    // The lock is p1 at 5 m; a runner stands in the stream at 2.5 m.
+    const { sim, a1, inputs } = duel({ gun: 2 }, 5);
+    const b = body(sim, 22.5, 30);
+    const hits = play(sim, inputs, BTN_GUN, 30, 60, [a1, b], () => {
+      sim.ent.posX[b] = 22.5;
+      sim.ent.posY[b] = 30;
+      sim.lockTarget[0] = a1;
+    });
+    const onBody = hits.filter((h) => h.id === b);
+    expect(onBody.length).toBeGreaterThan(8);
+    for (const h of onBody) expect(h.dmg).toBe(6);
+    // While the trigger holds the stream (the pass the countdown runs out on
+    // sweeps nothing, 0x0044b0b0, so the tail after the release is uneven).
+    const held = onBody.filter((h) => h.tick < 30);
+    for (let i = 1; i < held.length; i++) expect(held[i].tick - held[i - 1].tick).toBe(2);
+    // Every node that reaches the runner ends there 10 trail ticks later: none
+    // gets through to the lock behind it.
+    expect(hits.filter((h) => h.id === a1)).toEqual([]);
   });
 
-  test("the Concussion Beam bursts at the lock for 50", () => {
-    const { sim, a1, inputs } = duel({ heavy: 1 }, 6);
-    inputs.players[0].buttons = BTN_HEAVY;
-    step(sim, inputs);
-    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 50);
+  test("the lock in the stream is touched twice by each node: 12 (retail 0x0044b2fc and the registry walk)", () => {
+    const { sim, a1, inputs } = duel({ gun: 2 }, 3);
+    const hits = play(sim, inputs, BTN_GUN, 20, 40, [a1], () => {});
+    expect(sim.lockTarget[0]).toBe(a1);
+    expect(hits.length).toBeGreaterThan(4);
+    for (const h of hits) expect(h.dmg).toBe(12);
+  });
+
+  test("the flame reaches about 6.2 m: nothing at 9 m", () => {
+    const { sim, a1, inputs } = duel({ gun: 2 }, 9);
+    const hits = play(sim, inputs, BTN_GUN, 30, 90, [a1], () => {});
+    expect(hits).toEqual([]);
+  });
+
+  test("the beam hurts two bodies on its line once each: 50, and a body off it nothing", () => {
+    const { sim, a1, inputs } = duel({ heavy: 1 }, 8);
+    const near = body(sim, 24, 30.2);
+    const off = body(sim, 24, 33);
+    const hits = play(sim, inputs, BTN_HEAVY, 1, 40, [a1, near, off], () => {
+      sim.ent.posX[near] = 24;
+      sim.ent.posY[near] = 30.2;
+      sim.ent.posX[off] = 24;
+      sim.ent.posY[off] = 33;
+    });
+    expect(hits.filter((h) => h.id === near).map((h) => h.dmg)).toEqual([50]);
+    expect(hits.filter((h) => h.id === a1).map((h) => h.dmg)).toEqual([50]);
+    expect(hits.filter((h) => h.id === off)).toEqual([]);
+    // The nearer body first: the segment grows out from the muzzle at 1.25 m a frame.
+    const tNear = hits.find((h) => h.id === near)?.tick ?? -1;
+    const tFar = hits.find((h) => h.id === a1)?.tick ?? -1;
+    expect(tNear).toBeLessThan(tFar);
+  });
+
+  test("the shockwave's band hits a body several times, each from the current outer radius", () => {
+    const { sim, a1, inputs } = duel({ special: 2 }, 3);
+    const hits = play(sim, inputs, BTN_SPECIAL, 2, 60, [a1], () => {});
+    // Fired the second tick held (tick 1), first ticked at tick 2, blasting on
+    // every fourth pass (tick & 3 == 3) while the band covers 3 m.
+    expect(hits.length).toBeGreaterThanOrEqual(3);
+    for (const h of hits) {
+      expect(h.tick & 3).toBe(3);
+      expect(h.dmg).toBeLessThan(300);
+    }
+    // Tick 3: radius 409 + 2 * 95 = 599, outer (599 + 1228) << 4, d = 3 m.
+    const outer = (409 + 2 * 95 + 1228) * 16;
+    const d = 3 * 8192;
+    expect(hits[0]).toEqual({ tick: 3, id: a1, dmg: Math.floor((300 * (outer - d)) / outer) });
+    // The outer edge grows, so each later blast falls off less.
+    for (let i = 1; i < hits.length; i++) expect(hits[i].dmg).toBeGreaterThan(hits[i - 1].dmg);
   });
 });
 
@@ -861,21 +959,51 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
     expect(sim.powerAmmo[0]).toBe(749);
   });
 
-  test("a powered Mortar bursts into four fragments at its apex", () => {
+  test("a powered Mortar bursts into four fragments at its apex, and the shell flies on", () => {
     const { sim, inputs } = duel({ special: 0 }, 0, 25);
     sim.powerAmmo[2] = 12;
     inputs.players[0].buttons = BTN_SPECIAL;
     step(sim, inputs);
     step(sim, inputs); // fires on the second tick held
     inputs.players[0].buttons = 0;
-    expect(projectiles(sim, PROJ_MORTAR).length).toBe(1);
-    let most = 1;
-    for (let t = 0; t < 120; t++) {
+    const [shell] = projectiles(sim, PROJ_MORTAR);
+    expect(shell).toBeDefined();
+    let fragments: number[] = [];
+    for (let t = 0; t < 120 && fragments.length === 0; t++) {
       step(sim, inputs);
-      most = Math.max(most, projectiles(sim, PROJ_MORTAR).length);
+      fragments = projectiles(sim, PROJ_MORTAR).filter((e) => e !== shell);
     }
-    expect(most).toBe(4);
+    // `cact_round_advance` 0x00423e40: four copies, and nothing kills the shell.
+    expect(fragments.length).toBe(4);
+    expect(sim.ent.alive[shell]).toBe(1);
     expect(sim.powerAmmo[2]).toBe(11);
+    // Each in its own quadrant, at most 2 m/s off the shell (0x3fff wu/s), the
+    // original's x on the sim's y and its z on the sim's x; fragment i drops
+    // i to i + 1 m/s faster (0x2000 * i plus up to 0x1fff).
+    const vx = sim.ent.velX[shell];
+    const vy = sim.ent.velY[shell];
+    const vh = sim.ent.timerB[shell];
+    fragments.sort((a, b) => a - b);
+    const quadrants = new Set<string>();
+    for (const f of fragments) {
+      const dx = sim.ent.velX[f] - vx;
+      const dy = sim.ent.velY[f] - vy;
+      const drop = vh - sim.ent.timerB[f];
+      expect(Math.abs(dx)).toBeLessThan(2);
+      expect(Math.abs(dy)).toBeLessThan(2);
+      expect(drop).toBeGreaterThanOrEqual(0);
+      expect(drop).toBeLessThan(4);
+      quadrants.add(`${Math.sign(dx)}${Math.sign(dy)}`);
+    }
+    expect(quadrants.size).toBe(4);
+    // The shell keeps falling and goes off where it lands, after its fragments.
+    let lastDeath = -1;
+    for (let t = 0; t < 200 && sim.ent.alive[shell]; t++) {
+      step(sim, inputs);
+      lastDeath = t;
+    }
+    expect(sim.ent.alive[shell]).toBe(0);
+    expect(lastDeath).toBeGreaterThan(0);
   });
 
   test("going down loses it", () => {
@@ -885,5 +1013,126 @@ describe("the power-up: the slot's block B (fcop-fidelity.md P8)", () => {
     sim.ent.hp[a0] = -1;
     step(sim, inputs);
     expect(sim.powerAmmo[2]).toBe(0);
+  });
+});
+
+describe("the powered Electric Gun's jump (`player_arc` 0x00459bd0, P8)", () => {
+  const ELECTRIC = GUNS.findIndex((w) => w.name === "Electric Gun");
+
+  /** Enemy tanks at (x, y) offsets from p1, which stands 6 m east of p0. */
+  function jumpSim(offsets: readonly (readonly [number, number])[], powered = true) {
+    const { sim, a1, inputs } = duel({ gun: ELECTRIC }, 6);
+    if (powered) sim.powerAmmo[0] = 500;
+    const tanks = offsets.map(([dx, dy]) =>
+      spawnUnit(sim, ARCHETYPE.RUNNER, 1, sim.ent.posX[a1] + dx, sim.ent.posY[a1] + dy),
+    );
+    inputs.players[0].buttons = BTN_GUN;
+    step(sim, inputs);
+    return { sim, a1, tanks };
+  }
+
+  function arcs(sim: SimState): number[][] {
+    const out: number[][] = [];
+    for (let i = 0; i < sim.events.count; i++) {
+      const o = i * EVENT_STRIDE;
+      if (sim.events.data[o] === EV_GUN_ARC) {
+        out.push([sim.events.data[o + 1], sim.events.data[o + 2]]);
+      }
+    }
+    return out;
+  }
+
+  test("block B jumps from the lock to at most two bodies inside 4 m, each taking B's 6", () => {
+    const { sim, a1, tanks } = jumpSim([
+      [2, 0],
+      [0, 3],
+      [-3, -1],
+      [6, 0], // past the cube
+    ]);
+    expect(sim.lockTarget[0]).toBe(a1);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 6);
+    const jumped = arcs(sim);
+    expect(jumped.length).toBe(2);
+    for (const [from, to] of jumped) {
+      expect(from).toBe(a1);
+      expect(tanks.slice(0, 3)).toContain(to);
+    }
+    const max = ARCHETYPE_MAX_HP[ARCHETYPE.RUNNER];
+    const hurt = tanks.filter((t) => sim.ent.hp[t] === max - 6);
+    expect(hurt.length).toBe(2);
+    expect(sim.ent.hp[tanks[3]]).toBe(max);
+  });
+
+  test("the cube is per axis: a body 3.9 m off on two axes is in, one 4 m off is out", () => {
+    const { sim, tanks } = jumpSim([
+      [3.9, 3.9],
+      [4.0, 0],
+    ]);
+    const max = ARCHETYPE_MAX_HP[ARCHETYPE.RUNNER];
+    expect(sim.ent.hp[tanks[0]]).toBe(max - 6);
+    expect(sim.ent.hp[tanks[1]]).toBe(max);
+  });
+
+  test("block A never jumps", () => {
+    const { sim, a1, tanks } = jumpSim([[2, 0]], false);
+    expect(sim.ent.hp[a1]).toBe(AVATAR_HP - 3);
+    expect(arcs(sim)).toEqual([]);
+    expect(sim.ent.hp[tanks[0]]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.RUNNER]);
+  });
+
+  test("it never jumps to the shooter's own side", () => {
+    const { sim, a1, inputs } = duel({ gun: ELECTRIC }, 6);
+    sim.powerAmmo[0] = 500;
+    const own = spawnUnit(sim, ARCHETYPE.RUNNER, 0, sim.ent.posX[a1] + 1, sim.ent.posY[a1]);
+    inputs.players[0].buttons = BTN_GUN;
+    step(sim, inputs);
+    expect(arcs(sim)).toEqual([]);
+    expect(sim.ent.hp[own]).toBe(ARCHETYPE_MAX_HP[ARCHETYPE.RUNNER]);
+  });
+});
+
+describe("type 7's range kill (`round_orient` 0x00423b28, E20)", () => {
+  test("an arced round past 44 m from its owner's launch point goes, silently", () => {
+    const { sim, inputs } = duel({ special: 0 }, 0, 25);
+    inputs.players[0].buttons = BTN_SPECIAL;
+    step(sim, inputs);
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    const [s] = projectiles(sim, PROJ_MORTAR);
+    // Carry the shell high over the field, 44 m out on x and 1 m on y: the
+    // estimate is 44 + 0.5 m, past 0x58000 wu.
+    sim.ent.height[s] = 400;
+    sim.ent.posX[s] = 20 + 44;
+    sim.ent.posY[s] = 31;
+    sim.ent.velX[s] = 0;
+    sim.ent.velY[s] = 0;
+    step(sim, inputs);
+    expect(sim.ent.alive[s]).toBe(0);
+    for (let i = 0; i < sim.events.count; i++) {
+      expect(sim.events.data[i * EVENT_STRIDE]).not.toBe(EV_EXPLOSION);
+    }
+  });
+
+  test("inside its range an arced round has no lifetime: it falls until it lands", () => {
+    const { sim, inputs } = duel({ special: 0 }, 0, 25);
+    inputs.players[0].buttons = BTN_SPECIAL;
+    step(sim, inputs);
+    step(sim, inputs);
+    inputs.players[0].buttons = 0;
+    const [s] = projectiles(sim, PROJ_MORTAR);
+    sim.ent.height[s] = 60; // about 4.5 s of fall, past the record's 3 s fuse
+    sim.ent.velX[s] = 0;
+    sim.ent.velY[s] = 0;
+    let ticks = 0;
+    while (sim.ent.alive[s] && ticks < 400) {
+      step(sim, inputs);
+      ticks++;
+    }
+    expect(ticks).toBeGreaterThan(4 * TICK_HZ);
+    let boom = false;
+    for (let i = 0; i < sim.events.count; i++) {
+      if (sim.events.data[i * EVENT_STRIDE] === EV_EXPLOSION) boom = true;
+    }
+    expect(boom).toBe(true);
   });
 });

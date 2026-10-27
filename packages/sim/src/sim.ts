@@ -12,7 +12,9 @@
 
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
+  AIRCRAFT_CRASH_ROLL,
   ARC_FREE_AIM_DISTANCE,
+  ARC_ROUND_RANGE_WU,
   ARCHETYPE_MAX_HP,
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_MAX_SLOPE,
@@ -24,6 +26,11 @@ import {
   BASE_TURRET_RESPAWN_TICKS,
   CFUN_DELTA_PER_TICK,
   CLOAK_DISARM_RADIUS,
+  CLUSTER_DOWN_MASK,
+  CLUSTER_SIDE_HALF,
+  CLUSTER_SIDE_MASK,
+  CLUSTER_SINK_END,
+  CLUSTER_SINK_STEP,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -35,7 +42,8 @@ import {
   DREADNOUGHT_GUNS,
   DROWN_DEPTH,
   DUMMY_RESPAWN_TICKS,
-  FLAME_PULSE_TICKS,
+  ELECTRIC_ARC_AXIS_WU,
+  ELECTRIC_ARC_HITS,
   FLOOR_DAMAGE_PER_STEP,
   FORTRESS_ALIVE_LIMIT,
   FRAME_CLOCK_PER_TICK,
@@ -54,10 +62,12 @@ import {
   HOVER_CLEARANCE,
   HOVER_CUSHION_SPAN,
   HOVER_DRAG,
+  HOVER_DRAG_SNAP,
   HOVER_HOLD_DOWN,
   HOVER_IDLE_CEILING,
   HOVER_IDLE_KNEE,
   HOVER_IDLE_SLOPE,
+  HOVER_LEDGE_DROP,
   HOVER_PROBE_LIFT,
   HOVER_PUSH_FORE,
   HOVER_PUSH_SLOW_FORE,
@@ -68,6 +78,7 @@ import {
   HOVER_SPEED_CAP,
   HOVER_STOP_SPEED,
   HOVER_TURN_LIMIT,
+  IMPULSE_RISE_CUT,
   JUGGERNAUT_ALIVE_LIMIT,
   K9_AVOID_BIAS,
   K9_CLEARANCE,
@@ -90,7 +101,6 @@ import {
   MISSILE_MIN_SPEED,
   MISSILE_ROUND_HEALTH,
   MISSILE_TURN_RATE,
-  MORTAR_FRAGMENT_SPREAD,
   MUZZLE_HEIGHT,
   MUZZLE_OFFSET,
   NEUTRAL_TURRET_RADIUS,
@@ -119,6 +129,7 @@ import {
   RAW_PER_METRE,
   RESPAWN_SUNK_TICKS,
   RESPAWN_TICKS,
+  ROUND_CONTACT_RADIUS,
   RUNNER_ALIVE_LIMIT,
   retentionPerTick,
   SHIELD_ARC_WAIT_BASE,
@@ -131,6 +142,7 @@ import {
   SHIELD_RECOIL_B,
   SHIELD_ROUND_DAMAGE_A,
   SHIELD_ROUND_DAMAGE_B,
+  SHOCKWAVE_START_RADIUS,
   SHOOTER_RETRY_UNITS,
   SKY_BOMB_BLAST,
   SKY_BOMB_DAMAGE,
@@ -140,20 +152,24 @@ import {
   SKY_MISSILE_FLIGHT,
   SKY_MISSILE_SPEED_RAW,
   SKY_PICKUP_TOUCH_WU,
+  SNAP_CONTACT,
   STARTING_POINTS,
   SURFACE_REACH,
   skyRespawnTicks,
   TICK_DT,
   TICK_HZ,
+  TOUCH_DAMAGE_PER_STEP,
   TRANSFORM_LOCK_TICKS,
   TRIGGER_REARM_TICKS,
   TRIGGER_WATCH_ENEMY_AVATAR,
   TRIGGER_WATCH_ENEMY_UNITS,
   TRIGGER_WATCH_OWN_AVATAR,
   TURRET_ALERT_COOLDOWN_TICKS,
+  TURRET_PITCH_LIMIT,
   UNIT_QUEUES,
   WALKER_AIR_DRAG,
   WALKER_DRAG,
+  WALKER_HEAD_HEIGHT,
   WALKER_LEDGE_DROP,
   WALKER_MODE_DRAG,
   WALKER_MODE_OF_CODE,
@@ -161,12 +177,13 @@ import {
   WALKER_MODE_STOP,
   WALKER_PROBE_AHEAD,
   WALKER_PROBE_LIFT,
+  WALKER_RISE_GATE,
   WALKER_SINK_PER_TICK,
   WALKER_SLOPE_GAIN,
   WALKER_SLOPE_KNEE,
   WALKER_STEEP_TILT,
   WALKER_STOP_SPEED,
-  WARDEN_ALTITUDE,
+  WALL_PUSH,
   WEAPON_UNITS_PER_TICK,
   type WeaponRecord,
   WU_PER_METRE,
@@ -177,12 +194,23 @@ import {
   X1_IMPACT_SCALE,
   X1_IMPACT_SPEED,
   X1_IMPACT_SPEED_MAX,
+  X1_RAMP_FULL,
   X1_STEP_SPEED,
   X1_STEPS_PER_TICK,
   X1_TERMINAL_FALL,
   X1_UNITS_PER_TICK,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked, segmentBlockT } from "./collision";
+import {
+  legsRadius,
+  legsRefHeight,
+  PUSH_OUT,
+  pushContacts,
+  roundContact,
+  SHAPE_STATE_WORDS,
+  shapeBounds,
+  shapeTransform,
+} from "./contact";
 import { createEntityStore, despawn, type EntityStore, spawn } from "./entities";
 import {
   clearEvents,
@@ -194,6 +222,7 @@ import {
   EV_DEATH,
   EV_DRY_FIRE,
   EV_EXPLOSION,
+  EV_GUN_ARC,
   EV_HIT,
   EV_KILL_PUSH,
   EV_LIFT_ARRIVE,
@@ -208,6 +237,7 @@ import {
   EV_SHIELD_ARC_STEP,
   EV_SHOT,
   EV_SUNK,
+  EV_TOUCH,
   EV_TRANSFORM,
   EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
@@ -220,6 +250,7 @@ import {
   roundSource,
   SHOT_SLOT_HITSCAN,
   SHOT_SLOT_LAUNCH,
+  SKY_WEAPON_BOMB,
   SKY_WEAPON_MISSILE,
   weaponShotPayload,
 } from "./events";
@@ -253,19 +284,38 @@ import {
   type MapGunMount,
   type MapPoint,
   type MapTriggerVolume,
+  type MapTurretGun,
+  type MapUnitShape,
   type MapWeapon,
   type MapZone,
   resolveHeight,
+  SHAPE_ROUND_SLOTS,
   sampleHeight,
+  sampleLayerHeight,
   waterHeightAt,
   worldExtent,
 } from "./map";
+import {
+  bodyFrame,
+  type CockpitAim,
+  createCockpitAim,
+  createFrame,
+  systemCockpitAim,
+} from "./orient";
+import {
+  createRouteCursors,
+  followsRoutes,
+  type RouteCursors,
+  releaseRoute,
+  startRoute,
+} from "./route";
 import {
   atan2Poly,
   cosLUT,
   cosUnits,
   octagonalLength,
   rand01,
+  randInt,
   randU32,
   sinLUT,
   sinUnits,
@@ -283,7 +333,23 @@ import {
   unitStatKey,
 } from "./stats";
 import {
+  beamFire,
+  createSustainState,
+  flameFire,
+  hashSustain,
+  type SustainHost,
+  type SustainState,
+  shockwaveFire,
+  systemSustain,
+} from "./sustain";
+import {
+  AIR_CRASH,
+  AIR_LANDED,
+  type AirState,
+  aircraftCrash,
   aircraftEngaged,
+  airSpeedRaw,
+  createAirState,
   isAirUnit,
   isGroundUnit,
   isUnit,
@@ -292,7 +358,6 @@ import {
   resolveWalker,
   snapUnitHeight,
   startAircraft,
-  startRoute,
   surfaceBelow,
   systemUnitMovement,
   UNIT_MODE_OUTPOST,
@@ -305,7 +370,12 @@ import {
   animSetTrack,
   createAnimPlayer,
   createWalkerState,
+  hoverCommandState,
+  rampProgress,
+  snapFacing,
+  WALK_AIRBORNE,
   WALK_ARM,
+  WALK_CROUCHED,
   type WalkerState,
   walkerArm,
   walkerCommand,
@@ -321,14 +391,17 @@ import {
 import {
   type CaptainState,
   captainConstruct,
+  captainCrash,
   captainCredit,
   captainMaxHp,
   captainRespawn,
   captainRestore,
   createCaptainState,
+  SKY_CRASH,
   systemWarden,
 } from "./warden";
 import {
+  acceleration,
   DEFAULT_LOADOUT,
   difficultyAmmo,
   EXTRA_WEAPON_RIOT_SHIELD,
@@ -582,12 +655,22 @@ export interface SimState {
    * the captain (its tally, its rethink zeroed) or, with two viewports, the
    * other slot's Walker Kills, only when that actor, or the owner a round's id
    * carries, is the captain or the other mech (`player_op4`
-   * 0x004477ab..0x00447821). The Sky Captain's slot holds the same for the hits
-   * on the captain — 1 when the last was the X1's own craft — which its death
-   * reads for the X1's Walker Kills (aircraft.c 0x00420e1c..0x00420e57).
-   * Cleared at the respawn.
+   * 0x004477ab..0x00447821). The Sky Captain's slot holds, for the last hit that
+   * left the captain down, the life (`born`) of the X1 whose craft it was — 0
+   * for anyone else's — which the landing of its crash resolves for the X1's
+   * Walker Kills (aircraft.c 0x00420e1c..0x00420e57: the serial, at the crash's
+   * end). Cleared at the respawn.
    */
-  readonly rivalHit: Uint8Array;
+  readonly rivalHit: Uint32Array;
+  /**
+   * Each side's tanks and jets as its count words have them (state words 27 /
+   * 28 for slot 0, 29 / 30 for slot 1; index team * 2 + 1 for jets): raised at
+   * the purchase or request, lowered by a unit's death script — so a unit its
+   * spawner refused (20 alive) stays counted for good, the original's drift
+   * (fcop-fidelity.md U3, R18). The purchase gates and the Sky Captain's spend
+   * blocks read these against 20.
+   */
+  readonly unitCount: Int32Array;
   /**
    * The results page's twelve halfwords per side (stats.ts STAT_*, keys 0..11)
    * at `team * STAT_HALVES + key`: a player's view block +0x00, the Sky
@@ -620,6 +703,13 @@ export interface SimState {
    */
   readonly gunYaw: Int16Array;
   /**
+   * Every aircraft's flight in the original's integers (units.ts AirState): the
+   * jets', the Flying Fortresses' and the Sky Captain's heading, steer, crash
+   * tumble, bank and phase, by entity id. Set at their spawn, hashed for the
+   * live ones.
+   */
+  readonly air: AirState;
+  /**
    * The Dreadnought hull's walk per side (fcop-fidelity.md G8, I6; RE type5.c
    * 469-472): an AnmD block per entity id on the side's `juggernaut.walk` track,
    * null where the hull is static (every arena but bug-hunt). `cact_anim_init`
@@ -632,6 +722,25 @@ export interface SimState {
   readonly gunPhase: Uint8Array;
   readonly gunTarget: Int16Array;
   readonly gunSearch: Int32Array;
+  /**
+   * Every route follower's cursor and each node's occupancy nibble (route.ts;
+   * fcop-fidelity.md U1): the original's route block on the imported arenas.
+   * Read and hashed only on an arena with the graph.
+   */
+  readonly route: RouteCursors;
+  /**
+   * Each player's cockpit aim toward its lock (orient.ts CockpitAim; the
+   * original's partner, fcop-fidelity.md G1): what turns the cockpit's
+   * collider and drawing. Hashed.
+   */
+  readonly cockpitAim: CockpitAim;
+  /**
+   * Each unit's shooter's muzzle index, the original's +0x23 (0 or 1), by
+   * entity id: 0 from `cact_shooter_init` at the spawn, flipped by an
+   * ALTERNATE shooter as each round comes due (0x0044e673). The Sky Captain's
+   * three are its own (CaptainState.muzzle). Hashed for live aircraft.
+   */
+  readonly shooterMuzzle: Uint8Array;
   /** Player slot the Warden AI drives, -1 for a match without one (config). */
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
@@ -709,6 +818,30 @@ export interface SimState {
    * read by the next tick's velocity. Hashed on arenas with mode floors only.
    */
   readonly avatarMode: Uint8Array;
+  /**
+   * The pending impulse of the mech's wall contacts (the ride block's +0x64,
+   * `player_ground_push` 0x00443490), 16.16 a movement step, x and y per
+   * player: written by a tick's blocked move, spent by the next tick's
+   * velocity (`player_apply_impulse` 0x00443370). Hashed.
+   */
+  readonly avatarImpulse: Int32Array;
+  /**
+   * `snap_state` (+0xb8): the wall kind of the last contact (1 a wall across
+   * y, 2 across x), 0x10 for an actor's touch alone (0x004431bb, a snap toward
+   * facing 0), 0 for none; the next tick snaps the facing toward that wall's
+   * direction and clears it (`player_snap_facing`). Hashed.
+   */
+  readonly avatarSnap: Uint8Array;
+  /**
+   * Each mech's own contact model (`player_shape_bind` 0x00441c40, block
+   * +0x25c; contact.ts SHAPE_STATE_WORDS a player): its one box's centre and
+   * half extents in box halfwords, then the block's +0x44 and +0x46. Written by
+   * the reset and every frame of the transform's ramp (`player_transform_shape`
+   * 0x00441cf0, from the legs' box of the frame they show then) and by the
+   * crouch (`player_bounds_pair` 0x00444f00); read by the actors' contacts'
+   * push (fcop-fidelity.md P4). Hashed.
+   */
+  readonly avatarShape: Int16Array;
 
   /**
    * SimOptions.extraWeapons, normalized (config, like the loadouts). Everything
@@ -724,9 +857,17 @@ export interface SimState {
   /** The Riot Shield's sphere per player (systemShields). */
   readonly shield: ShieldState;
   /**
+   * The sustained weapons' trails and shells (sustain.ts, SIM_VERSION 105): the
+   * Flamethrower's and the Concussion Beam's nodes, the Shockwave's and the
+   * powered beam's expanding shells. Hashed while any is live.
+   */
+  readonly sustain: SustainState;
+  /**
    * A guided round's launch point and range (x, y, height, range at `id * 4`),
    * the original's +0xa0..+0xa6: what its range and the Fusion Torpedo's falloff
-   * measure from. Read and hashed for live guided rounds only.
+   * measure from; an arced round's owner point (x, y, 0, 0; noteArcOwner), what
+   * its range kill measures from. Read and hashed for live guided and arced
+   * rounds only.
    */
   readonly roundLaunch: Float32Array;
 
@@ -750,7 +891,12 @@ export function spawnAvatar(state: SimState, player: number): number {
   // Feature layer (issue #33): spawn height is the surface the spawn sits on,
   // not always the ground under it. layer 0 → sampleHeight (bit-identical).
   const ground = resolveHeight(state.map, s.x, s.y, s.layer);
-  ent.height[id] = warden ? Math.max(ground, state.map.waterLevel) + WARDEN_ALTITUDE : ground;
+  // The captain at its anchor: `alt_cruise << 4` over the surface its construct
+  // placed it on (0x00420501; the respawn puts it back there, 0x00422c85).
+  ent.height[id] = warden
+    ? ground +
+      (state.map.skyFlight[wardenLevel(state.wardenDifficulty)].altCruise << 4) / WU_PER_METRE
+    : ground;
   // A spawn on a lift (Slim, Joke) stands on its top within a step.
   if (!warden && state.map.lifts.length > 0) {
     ent.height[id] = avatarSurface(state, s.x, s.y, ground, false).height;
@@ -766,6 +912,7 @@ export function spawnAvatar(state: SimState, player: number): number {
     const level = wardenLevel(state.wardenDifficulty);
     ent.radius[id] = state.map.radii.skyCaptain[level];
     ent.refHeight[id] = state.map.refHeights.skyCaptain[level];
+    ent.shape[id] = level < state.map.shapes.skyCaptain.length ? level : -1;
   }
   // Spawn form (fcop-fidelity.md P2): every respawn comes back in the form the
   // spawn record asks for, as `player_respawn` resets the row from the record.
@@ -796,8 +943,17 @@ export function spawnAvatar(state: SimState, player: number): number {
   state.avatarId[player] = id;
   state.avatarTurnRate[player] = 0;
   state.avatarIdle[player] = 0;
-  if (!warden) walkerReset(state.walker, player, hover);
+  if (!warden) {
+    walkerReset(state.walker, player, hover);
+    // `player_reset` binds the contact model and builds it from the legs' frame
+    // its track starts on, at progress 0 or full (0x00441b2b, 0x00441bdd).
+    shapeTransform(state, player, state.walker.legs.frame[player], hover ? X1_RAMP_FULL : 0);
+  }
   state.avatarMode[player] = 0;
+  // `player_reset` clears the impulse (0x00441acc, 0x00441ad8).
+  state.avatarImpulse[player * 2] = 0;
+  state.avatarImpulse[player * 2 + 1] = 0;
+  state.avatarSnap[player] = 0;
   state.avatarSinking[player] = 0;
   state.rivalHit[player] = 0;
   return id;
@@ -847,6 +1003,8 @@ function spawnNeutralTurret(state: SimState, k: number): number {
   ent.weaponProfile[id] = state.map.turretParams[k];
   ent.radius[id] = state.map.radii.neutral[k];
   ent.refHeight[id] = state.map.refHeights.neutral[k];
+  ent.turretGun[id] = 1 + k;
+  ent.shape[id] = k < state.map.shapes.neutral.length ? k + 1 : -1;
   // The rest yaw. A turret's aimX/aimY are its shooter state (systemTargeting),
   // so they start at zero.
   if (state.map.turretYaw.length > 0) ent.yaw[id] = state.map.turretYaw[k];
@@ -878,6 +1036,7 @@ function spawnPlateTurret(state: SimState, j: number): number {
   ent.weaponProfile[id] = spot.weapon;
   ent.radius[id] = state.map.radii.baseTurret;
   ent.refHeight[id] = state.map.refHeights.baseTurret;
+  ent.shape[id] = state.map.shapes.baseTurret ? 0 : -1;
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   ent.restYaw[id] = ent.yaw[id];
   state.plateTurretEntity[j] = id;
@@ -949,6 +1108,7 @@ function spawnBaseTurret(state: SimState, k: number): number {
   ent.weaponProfile[id] = spot.weapon;
   ent.radius[id] = state.map.radii.baseTurret;
   ent.refHeight[id] = state.map.refHeights.baseTurret;
+  ent.shape[id] = state.map.shapes.baseTurret ? 0 : -1;
   // Rest yaw only: aimX/aimY are the shooter's state (systemTargeting).
   if (spot.yaw !== 0) ent.yaw[id] = spot.yaw;
   ent.restYaw[id] = ent.yaw[id];
@@ -981,6 +1141,8 @@ export function spawnUnit(
   // (`csac_credit_spawn`, spawn.c 0x0044f4b6..0x0044f563).
   const created = unitStatKey(archetype, true);
   if (created >= 0) bumpStat(state, team, created);
+  // Its shooters' muzzle index starts at 0 (`cact_shooter_init` 0x0044ea00).
+  state.shooterMuzzle[id] = 0;
   ent.posX[id] = x;
   ent.posY[id] = y;
   // Seed height/layer before snapUnitHeight: resolveWalker picks surfaces within
@@ -1014,6 +1176,17 @@ export function spawnUnit(
         : archetype === ARCHETYPE.JUGGERNAUT
           ? refs.dreadnought
           : refs.fortress;
+  const shapes = state.map.shapes;
+  ent.shape[id] =
+    archetype === ARCHETYPE.JUGGERNAUT
+      ? shapes.dreadnought
+      : (archetype === ARCHETYPE.RUNNER
+            ? shapes.tank
+            : archetype === ARCHETYPE.GUARDIAN
+              ? shapes.jet
+              : shapes.fortress) !== null
+        ? 0
+        : -1;
   if (archetype === ARCHETYPE.JUGGERNAUT) {
     ent.hp[id] = base.juggernaut.hp;
     ent.weaponProfile[id] = base.juggernaut.weapon;
@@ -1050,26 +1223,10 @@ export function spawnUnit(
     const lanes = state.map.lanes;
     if (graph !== undefined) {
       // Original road graph (rules.md §9): a route follower on its own side's
-      // net (fcop-logic.md §8.1, each team drives its own Cnet). A base-built
-      // unit starts at its team's entry node; a forward (outpost) spawn joins at
-      // the nearest node of that net, scanned in index order so ties break
-      // identically on every peer. (It used to take the nearest node of either
-      // net, which on the enemy's directed net leads back to its own base.)
-      let node = graph.entry[team];
-      if (forward) {
-        let best = Infinity;
-        for (let k = 0; k < graph.nodes.length; k++) {
-          if (graph.net[k] !== team) continue;
-          const dx = graph.nodes[k].x - x;
-          const dy = graph.nodes[k].y - y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < best) {
-            best = d2;
-            node = k;
-          }
-        }
-      }
-      startRoute(state, id, node);
+      // net (fcop-logic.md §8.1, each team drives its own Cnet), put on it as
+      // the original's construct puts it, from the node it spawns on — every
+      // tank and Dreadnought spawner stands on one (route.ts startRoute).
+      startRoute(state, id);
     } else if (lanes.length > 0) {
       let lane: number;
       let wp: number;
@@ -1100,12 +1257,13 @@ export function spawnUnit(
       ent.timerA[id] = 0;
       ent.timerB[id] = -1; // no lanes on this map: beeline the gate
     }
-    snapUnitHeight(state, id, false);
+    // A route follower stands at its cursor's height (startRoute); the rest on
+    // the surface.
+    if (graph === undefined) snapUnitHeight(state, id, false);
   } else {
     // The original's aircraft (units.ts moveAircraft): patrols its anchor, the
     // spawner it was built at (mode 0 base, 1 + k outpost k).
-    startAircraft(state, id);
-    snapUnitHeight(state, id, true);
+    startAircraft(state, id, ent.height[id]);
   }
   return id;
 }
@@ -1166,17 +1324,22 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     loadoutSpecial: new Uint8Array(MAX_PLAYERS),
     difficulty: new Uint8Array(MAX_PLAYERS).fill(DIFFICULTY_NORMAL),
     avatarSinking: new Uint8Array(MAX_PLAYERS),
-    rivalHit: new Uint8Array(MAX_PLAYERS),
+    rivalHit: new Uint32Array(MAX_PLAYERS),
+    unitCount: new Int32Array(MAX_PLAYERS * 2),
     statHalves: new Uint16Array(MAX_PLAYERS * STAT_HALVES),
     pointsScored: new Uint32Array(MAX_PLAYERS),
     firstDeath: new Uint32Array(MAX_PLAYERS),
     firstOutpost: new Uint32Array(MAX_PLAYERS),
     formTime: new Uint32Array(MAX_PLAYERS * 2),
     gunYaw: new Int16Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
+    air: createAirState(),
     gunClock: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunPhase: new Uint8Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunTarget: new Int16Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunSearch: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
+    route: createRouteCursors(map),
+    cockpitAim: createCockpitAim(),
+    shooterMuzzle: new Uint8Array(MAX_ENTITIES),
     hullWalk: map.bases.map((b) => {
       const w = b.juggernaut.walk;
       if (w === undefined) return null;
@@ -1215,9 +1378,13 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     avatarIdle: new Int32Array(MAX_PLAYERS),
     walker: createWalkerState(MAX_PLAYERS),
     avatarMode: new Uint8Array(MAX_PLAYERS),
+    avatarImpulse: new Int32Array(MAX_PLAYERS * 2),
+    avatarSnap: new Uint8Array(MAX_PLAYERS),
+    avatarShape: new Int16Array(MAX_PLAYERS * SHAPE_STATE_WORDS),
     extraWeapons,
     keptRound: new Int32Array(MAX_PLAYERS).fill(-1),
     shield: createShieldState(),
+    sustain: createSustainState(),
     roundLaunch: new Float32Array(MAX_ENTITIES * 4),
     events: createEventBuffer(),
   };
@@ -1437,6 +1604,19 @@ function landingImpact(state: SimState, id: number, speed: number): void {
   applyDamage(state, id, X1_IMPACT_HP * f, -1);
 }
 
+/**
+ * The crouch's bounds pair (`player_bounds_pair` 0x00444f00) after a walker
+ * step's arm, from the arm's change of WALK_CROUCHED (`crouched`, the bit before
+ * it): entering state 9 with the bit clear lowers the contact model's box
+ * (0x00444514), leaving it with the bit set puts the standing pair back
+ * (0x004444c3).
+ */
+function crouchBounds(state: SimState, p: number, crouched: number): void {
+  const now = state.walker.flags[p] & WALK_CROUCHED;
+  if (now !== 0 && crouched === 0) shapeBounds(state, p, true);
+  else if (now === 0 && crouched !== 0) shapeBounds(state, p, false);
+}
+
 /** The hover's ride height over its surface now: ramps through a change. */
 function clearanceOf(ent: EntityStore, id: number): number {
   const left = ent.timerA[id] / TRANSFORM_LOCK_TICKS;
@@ -1456,8 +1636,9 @@ function startTransform(state: SimState, id: number, hover: boolean): void {
  * input + avatar movement: the original's two movement models (rules.md §2,
  * fcop-fidelity.md P3-P5; the per-tick conversion is described in balance.ts
  * "X1-Alpha movement"), transform, jumps, gravity and landings, then weapons and
- * buying. Walls, decks and the two slope gates are Metropolis' collision and
- * are unchanged.
+ * buying. Walls, decks and the two slope gates are Metropolis' collision; a
+ * move a wall stops is the original's contact (its push and the facing snap,
+ * fcop-fidelity.md P4), and the walker's head meets the decks over it.
  */
 function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
   const ent = state.ent;
@@ -1581,7 +1762,16 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         rise = avatarSurface(state, ax, ay, h + WALKER_PROBE_LIFT, false).height - h;
       }
       command = walkerCommand(walk, p, bits, rise);
-      walkerArm(walk, p, command, bits, stepSpeed(ent.velX[id], ent.velY[id], vz) >> 11);
+      const crouched = walk.flags[p] & WALK_CROUCHED;
+      walkerArm(
+        walk,
+        p,
+        command,
+        bits,
+        stepSpeed(ent.velX[id], ent.velY[id], vz) >> 11,
+        state.avatarSnap[p] !== 0,
+      );
+      crouchBounds(state, p, crouched);
     }
     const liftOff = walkerTick && arm.lift > 0;
     const inAir = airborne || liftOff;
@@ -1603,7 +1793,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         else if (rate < -HOVER_TURN_LIMIT) rate = -HOVER_TURN_LIMIT;
       }
       state.avatarTurnRate[p] = rate;
-      dYaw = rate * 0.5 * X1_STEPS_PER_TICK * ANGLE_UNIT;
+      // While a wall snap is pending the facing gains an eighth of the rate, not
+      // a half (`neg al; sbb; and eax, 2; inc eax`, 0x00442756).
+      const share = state.avatarSnap[p] !== 0 ? 0.125 : 0.5;
+      dYaw = rate * share * X1_STEPS_PER_TICK * ANGLE_UNIT;
     } else if (arm.turn !== 0) {
       // Walker: the arm's turn, 0x20 a step less speed * 0x20 >> 9 (105°/s at
       // rest, nothing at 18.75 m/s), on the ground only and not on a jump's
@@ -1617,6 +1810,22 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       ent.yaw[id] = yaw;
       ent.aimX[id] = cosLUT(yaw);
       ent.aimY[id] = sinLUT(yaw);
+    }
+    // The facing snap (`player_snap_facing` 0x004437d0, run after the turn at
+    // 0x00444453 / 0x004427eb, in either form, on the ground or not): a wall
+    // contact last tick turns the facing at most 8 units a step toward the
+    // direction that wall runs in, on each of this tick's steps, and is spent.
+    const snap = state.avatarSnap[p];
+    if (snap !== 0) {
+      const f0 = Math.floor(ent.yaw[id] / ANGLE_UNIT + 0.5) & 0xfff;
+      const f1 = snapFacing(snap, f0, steps);
+      if (f1 !== f0) {
+        const yaw = (f1 > 2048 ? f1 - 4096 : f1) * ANGLE_UNIT;
+        ent.yaw[id] = yaw;
+        ent.aimX[id] = cosLUT(yaw);
+        ent.aimY[id] = sinLUT(yaw);
+      }
+      state.avatarSnap[p] = 0;
     }
     const fx = ent.aimX[id];
     const fy = ent.aimY[id];
@@ -1667,6 +1876,39 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       (brake ? MOVE_CUE_BRAKE : 0) |
       (ent.yaw[id] !== yaw0 ? MOVE_CUE_TURN : 0);
 
+    // The wall contacts' impulse from last tick (`player_apply_impulse`
+    // 0x00443370): halved while airborne, halved again in the hover or on a
+    // mode floor; the velocity loses its component along it and decays by an
+    // eighth, a rise over 0x100 a step is cut, and the stop test does not run.
+    // The push goes into the velocity after this tick's own change.
+    const k2 = p * 2;
+    let impX = 0;
+    let impY = 0;
+    const shoved = state.avatarImpulse[k2] !== 0 || state.avatarImpulse[k2 + 1] !== 0;
+    if (shoved) {
+      let ix = state.avatarImpulse[k2];
+      let iy = state.avatarImpulse[k2 + 1];
+      if ((walk.flags[p] & WALK_AIRBORNE) !== 0) {
+        ix >>= 1;
+        iy >>= 1;
+      }
+      const half = hoverPhys || state.avatarMode[p] !== 0 ? 1 : 0;
+      impX = (ix >> half) * X1_STEP_SPEED;
+      impY = (iy >> half) * X1_STEP_SPEED;
+      const len = Math.sqrt(ix * ix + iy * iy);
+      const nx = ix / len;
+      const ny = iy / len;
+      const ux = ent.velX[id];
+      const uy = ent.velY[id];
+      const along = ux * nx + uy * ny;
+      ent.velX[id] = (ux - along * nx) * (7 / 8);
+      ent.velY[id] = (uy - along * ny) * (7 / 8);
+      vz *= 7 / 8;
+      if (vz > IMPULSE_RISE_CUT * X1_STEP_SPEED) vz = 0;
+      state.avatarImpulse[k2] = 0;
+      state.avatarImpulse[k2 + 1] = 0;
+    }
+
     // Velocity: n = 1.25 steps of v += P - d v in closed form (balance.ts).
     let vx = ent.velX[id];
     let vy = ent.velY[id];
@@ -1678,6 +1920,9 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       state.avatarIdle[p] = idle;
       let d = HOVER_DRAG;
       if (idle > HOVER_IDLE_KNEE) d += ((idle - HOVER_IDLE_KNEE) * HOVER_IDLE_SLOPE) / 65536;
+      // A pending wall snap brakes it at 0.375 a step (0x004427d0); the brake's
+      // own drag is chosen after, and wins.
+      if (snap !== 0) d = HOVER_DRAG_SNAP;
       if (brake && !inAir) d = HOVER_BRAKE_DRAG;
       if (!inAir) {
         // With control, the tilted ground pushes it downhill.
@@ -1693,6 +1938,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       // after every step, so the test here is the tick's FIRST step: one that
       // ends under the threshold stops it, as it would have in the original.
       const settle =
+        !shoved &&
         !commanded &&
         !brake &&
         !inAir &&
@@ -1702,6 +1948,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       const r = retentionPerTick(d);
       vx = settle ? 0 : (pushX / d) * (1 - r) + vx * r;
       vy = settle ? 0 : (pushY / d) * (1 - r) + vy * r;
+      vx += impX;
+      vy += impY;
       const v2 = vx * vx + vy * vy;
       if (v2 > HOVER_SPEED_CAP * HOVER_SPEED_CAP) {
         const k = HOVER_SPEED_CAP / Math.sqrt(v2);
@@ -1739,7 +1987,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       // states whose arm runs it (0, 9, 0x12).
       const k = 1 - drag;
       const settle =
-        arm.settle && Math.abs(vx * k + pushX) < stop && Math.abs(vy * k + pushY) < stop;
+        arm.settle && !shoved && Math.abs(vx * k + pushX) < stop && Math.abs(vy * k + pushY) < stop;
       const r = retentionPerTick(drag);
       vx = settle ? 0 : (pushX / drag) * (1 - r) + vx * r;
       vy = settle ? 0 : (pushY / drag) * (1 - r) + vy * r;
@@ -1751,6 +1999,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       vx += pi * fx;
       vy += pi * fy;
       if (arm.lift > 0) vz = arm.lift * X1_STEP_SPEED;
+    }
+    if (!hoverPhys) {
+      vx += impX;
+      vy += impY;
     }
     ent.velX[id] = vx;
     ent.velY[id] = vy;
@@ -1765,10 +2017,23 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     const skipSlope = !hoverPhys && inAir;
     const fromX = x;
     const fromY = y;
+    // A move a wall stops is a contact (`player_ground_push` 0x00443490): the
+    // wall's kind -- 2 for a wall across x (the original's plates on a cell's
+    // other edge), 1 across y -- becomes the snap state, and a push of
+    // WALL_PUSH along its normal, away from it, the impulse the next tick
+    // spends; each kind once. Both in one tick: the y wall's kind is left.
     const stepX = vx * TICK_DT;
+    let wallPushX = 0;
+    let wallPushY = 0;
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
-      let ok = !crossesWallX(map, x, nx, y, wallLayer);
+      const wallX = crossesWallX(map, x, nx, y, wallLayer);
+      if (wallX) {
+        wallPushX = stepX > 0 ? -WALL_PUSH : WALL_PUSH;
+        state.avatarImpulse[k2] += wallPushX;
+        state.avatarSnap[p] = 2;
+      }
+      let ok = !wallX;
       if (ok && !skipSlope && slopeBlocks(state, x, y, nx, y, hoverPhys, ent.height[id]))
         ok = false;
       if (ok) x = nx;
@@ -1777,7 +2042,13 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     const stepY = vy * TICK_DT;
     if (stepY !== 0) {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
-      let ok = !crossesWallY(map, x, y, ny, wallLayer);
+      const wallY = crossesWallY(map, x, y, ny, wallLayer);
+      if (wallY) {
+        wallPushY = stepY > 0 ? -WALL_PUSH : WALL_PUSH;
+        state.avatarImpulse[k2 + 1] += wallPushY;
+        state.avatarSnap[p] = 1;
+      }
+      let ok = !wallY;
       if (ok && !skipSlope && slopeBlocks(state, x, y, x, ny, hoverPhys, ent.height[id]))
         ok = false;
       if (ok) y = ny;
@@ -1785,10 +2056,8 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     }
     // The slow row's ledge (balance.ts WALKER_LEDGE_DROP): the walker in state
     // 1, 2 or 5 (slow forward, back or Jink Left) on the ground is put back from
-    // a drop of over 0.1 m, and its state is 0 again (walkerLand). The
-    // hover's slow row holds only at drops under 0.1 m (0x00442d36), which in
-    // Metropolis' hover — no push along the surface, so every downhill tick
-    // reads as a small drop — would stop it on any slope: not modelled.
+    // a drop of over 0.1 m, and its state is 0 again (walkerLand). The hover's
+    // (HOVER_LEDGE_DROP) is in its vertical step below.
     let ledge = false;
     const ws = walk.state[p];
     if (
@@ -1833,18 +2102,36 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     let carrier = -1;
     /** The landing's fall speed, m/s, 0 for none. */
     let fall = 0;
+    /** The hover's slow-row ledge test ran (walkerHover). */
+    let hoverLedge = false;
     if (hoverPhys) {
       // Snapped up to its ride height, held down within HOVER_HOLD_DOWN of it,
-      // and airborne above that — off a ledge it falls.
-      const hs = avatarSurface(state, x, y, h, true);
+      // and airborne above that — off a ledge it falls. With control its
+      // velocity lies in the plane of the surface under it (the push and the
+      // velocity lose their part along `up`, 0x00442911 / 0x00442d89), so a
+      // grounded hover's step carries it along that plane: what reads as a
+      // drop is ground falling away from the plane (an edge, a crest), not the
+      // slope it rides. It leaves the plane with that plane's vertical speed.
+      const h0 = h;
+      let hs = avatarSurface(state, x, y, h, true);
       ent.entLayer[id] = hs.layer;
       carrier = hs.lift;
       ride = hs.height + clearanceOf(ent, id);
-      const air = h > ride + HOVER_HOLD_DOWN || vz > 0;
+      let lift = 0;
+      if (!airborne && (x !== fromX || y !== fromY)) {
+        const t = surfaceTilt(state, fromX, fromY, true, h0, TILT_UNDERFOOT);
+        lift = t.gx * (x - fromX) + t.gy * (y - fromY);
+      }
+      const air = h + lift > ride + HOVER_HOLD_DOWN || vz > 0;
       if (air) {
-        vz -= X1_GRAVITY * TICK_DT;
-        if (vz < -X1_TERMINAL_FALL) vz = -X1_TERMINAL_FALL;
-        h += vz * TICK_DT;
+        if (!airborne) {
+          h += lift;
+          vz = lift / TICK_DT;
+        } else {
+          vz -= X1_GRAVITY * TICK_DT;
+          if (vz < -X1_TERMINAL_FALL) vz = -X1_TERMINAL_FALL;
+          h += vz * TICK_DT;
+        }
       }
       if (!air || h <= ride) {
         if (air && vz < 0) {
@@ -1853,6 +2140,30 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         }
         h = ride;
         vz = 0;
+      } else {
+        // The slow row's ledge (0x00442cea..0x00442d47): over the band in
+        // states 1 and 2 the state is 0 whatever follows, and it is put back
+        // where it was, its horizontal velocity zeroed, unless the surface it
+        // left is no higher than it is now and the drop is 0.1 m or more.
+        const cmd = hoverCommandState(bits);
+        if (cmd === 1 || cmd === 2) {
+          hoverLedge = true;
+          const behind = avatarSurface(state, fromX, fromY, h0, true).height;
+          if (behind > h || h - ride < HOVER_LEDGE_DROP) {
+            x = fromX;
+            y = fromY;
+            ent.posX[id] = x;
+            ent.posY[id] = y;
+            ent.velX[id] = 0;
+            ent.velY[id] = 0;
+            h = h0;
+            if (!airborne) vz = 0;
+            hs = avatarSurface(state, x, y, h, true);
+            ent.entLayer[id] = hs.layer;
+            carrier = hs.lift;
+            ride = hs.height + clearanceOf(ent, id);
+          }
+        }
       }
     } else if (sinking) {
       // HARD's sinking walker: its ground is its own height less 0xc0 wu a step
@@ -1871,9 +2182,20 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       carrier = wr.lift;
       ride = wr.height;
       if (vz !== 0 || h > ride + STEP_SNAP) {
+        const h0 = h;
         vz -= X1_GRAVITY * TICK_DT;
         if (vz < -X1_TERMINAL_FALL) vz = -X1_TERMINAL_FALL;
         h += vz * TICK_DT;
+        // The head (0x004448a6): still rising, a deck its head passes up
+        // through this tick stops the rise and halves the horizontal velocity.
+        if (
+          vz > WALKER_RISE_GATE * X1_STEP_SPEED &&
+          deckOverhead(map, x, y, h0 + WALKER_HEAD_HEIGHT, h + WALKER_HEAD_HEIGHT)
+        ) {
+          vz = 0;
+          ent.velX[id] /= 2;
+          ent.velY[id] /= 2;
+        }
         if (h <= ride) {
           if (vz < 0) {
             landingImpact(state, id, -vz);
@@ -1889,6 +2211,26 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     }
     ent.height[id] = h;
     ent.timerB[id] = vz;
+    // The actors' contacts (`player_push_contacts` 0x00442e70, before the wall
+    // push in each step of either tick: 0x00444b6b, 0x00442dc1): what met the
+    // mech's own contact model pushes it into the same impulse, a touch alone
+    // leaves the snap at 0x10 (a wall's kind overwrites it, 0x004435a2), the
+    // wall push of a step that met anything is doubled (0x0044361b), and each
+    // toucher deals its +0x1a a step (0x0044302c).
+    if (pushContacts(state, p, state.wardenPlayer < 0) > 0) {
+      state.avatarImpulse[k2] += PUSH_OUT.ix + wallPushX;
+      state.avatarImpulse[k2 + 1] += PUSH_OUT.iy + wallPushY;
+      if (state.avatarSnap[p] === 0) state.avatarSnap[p] = SNAP_CONTACT;
+      for (let t = 0; t < PUSH_OUT.count; t++) {
+        const toucher = PUSH_OUT.touched[t];
+        const arch = ent.archetype[toucher];
+        const dmg = TOUCH_DAMAGE_PER_STEP[arch] * steps;
+        if (dmg <= 0) continue;
+        const owner = ent.ownerId[toucher];
+        const by = owner >= 0 && owner < MAX_PLAYERS ? owner : -1;
+        applyDamage(state, id, dmg, by, arch === ARCHETYPE.AVATAR);
+      }
+    }
     // The ground's code under the walker sets its next tick's mode, felt within
     // SURFACE_REACH as the original's player_order is; a hover's step reads
     // none, and a lift's top carries no code.
@@ -1918,6 +2260,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       if (!sinking) walkerLand(walk, p, up, fall / X1_STEP_SPEED, ledge);
       walkerLegs(walk, p, stepSpeed(ent.velX[id], ent.velY[id], ent.timerB[id]), lean, steep);
       for (let e = 1; e < steps; e++) {
+        const crouched = walk.flags[p] & WALK_CROUCHED;
         walkerArm(
           walk,
           p,
@@ -1925,6 +2268,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
           bits,
           stepSpeed(ent.velX[id], ent.velY[id], ent.timerB[id]) >> 11,
         );
+        crouchBounds(state, p, crouched);
         if (arm.impulse) {
           const pi = arm.push * X1_STEP_SPEED;
           ent.velX[id] += pi * ent.aimX[id];
@@ -1935,9 +2279,23 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         walkerLegs(walk, p, stepSpeed(ent.velX[id], ent.velY[id], ent.timerB[id]), lean, steep);
       }
     } else {
-      walkerHover(walk, p, bits, h <= ride, h > ride + HOVER_HOLD_DOWN, fall / X1_STEP_SPEED);
+      walkerHover(
+        walk,
+        p,
+        bits,
+        h <= ride,
+        h > ride + HOVER_HOLD_DOWN,
+        fall / X1_STEP_SPEED,
+        hoverLedge,
+      );
     }
-    if (ent.timerA[id] > 0) walkerRamp(walk, p, ent.mode[id] === MODE_HOVER, ent.timerA[id]);
+    if (ent.timerA[id] > 0) {
+      const toHover = ent.mode[id] === MODE_HOVER;
+      walkerRamp(walk, p, toHover, ent.timerA[id]);
+      // Every ramp frame rebuilds the contact model at its progress, from the
+      // legs' frame (`player_transform_shape` at 0x004423af).
+      shapeTransform(state, p, walk.legs.frame[p], rampProgress(toHover, ent.timerA[id]));
+    }
 
     ent.animState[id] =
       (commanded || ent.velX[id] * ent.velX[id] + ent.velY[id] * ent.velY[id] > 1e-6
@@ -1970,7 +2328,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
  */
 function isLockable(state: SimState, player: number, selfId: number, t: number): boolean {
   const ent = state.ent;
-  if (t === selfId || !ent.alive[t] || ent.hp[t] <= 0) return false;
+  if (t === selfId || !ent.alive[t] || downed(state, t)) return false;
   const team = ent.team[t];
   if (team === player) return false;
   const arch = ent.archetype[t];
@@ -2273,19 +2631,20 @@ export function systemBuy(state: SimState, player: number, id: number): void {
   if (archetype < 0) return; // not on a purchase spot: the press is not a purchase
 
   // The spot's own gates (fcop-fidelity.md R9, R10), refused out loud: the
-  // points, the 20-alive cap of tanks and jets — a queued unit counts from its
-  // purchase, as the original's count word does (R18) — and a heavy zone whose
+  // points, the 20 cap of tanks and jets on the side's count word (the shop
+  // scripts' `20 > word`: raised by every purchase, lowered by a death, so a
+  // unit its spawner refused stays counted; U3, R18) — and a heavy zone whose
   // unit lives (the original's latch, reopened by that unit's death script).
-  let alive = countAliveOfArchetype(state, archetype, player);
-  if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN) {
-    alive += queuedUnits(state, player, archetype === ARCHETYPE.GUARDIAN);
-  }
+  const counted = archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN;
+  const word = player * 2 + (archetype === ARCHETYPE.GUARDIAN ? 1 : 0);
+  const alive = counted ? state.unitCount[word] : countAliveOfArchetype(state, archetype, player);
   if (state.points[player] < cost || alive >= aliveLimit(archetype)) {
     pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
     return;
   }
 
   state.points[player] -= cost;
+  if (counted) state.unitCount[word] += 1;
   if (queue >= 0) {
     // Accepted at the press; the queue's next poll spawns it.
     state.unitQueue[player * UNIT_QUEUES + queue] += 1;
@@ -2297,6 +2656,7 @@ export function systemBuy(state: SimState, player: number, id: number): void {
     pushEvent(state.events, EV_PURCHASE, uid, player, archetype);
   } else {
     state.points[player] += cost; // entity cap hit: refund, nothing spawned
+    if (counted) state.unitCount[word] -= 1;
     pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
   }
 }
@@ -2529,6 +2889,32 @@ function inWater(state: SimState, id: number, x: number, y: number): boolean {
 }
 
 /**
+ * Whether a deck present over (x, y) lies above `from` and at or below `to`:
+ * the walker's head trace (`player_walk_tick` 0x004448a6, a segment 0x24c0 wu
+ * over its feet from where it was to where it is, `terrain_trace_segment` with
+ * floors on) meeting a plate from below. Metropolis' walls stop the walker at
+ * every height and its ground's rise is the gates', so only the decks over it
+ * are traced.
+ */
+function deckOverhead(map: MapData, x: number, y: number, from: number, to: number): boolean {
+  const layers = map.layerHeights.length;
+  if (layers === 0) return false;
+  const s = map.size;
+  let i = Math.floor(x / map.cellSize);
+  let j = Math.floor(y / map.cellSize);
+  if (i < 0) i = 0;
+  else if (i > s - 1) i = s - 1;
+  if (j < 0) j = 0;
+  else if (j > s - 1) j = s - 1;
+  for (let L = 0; L < layers; L++) {
+    if (map.layerMask[L][j * s + i] === 0) continue;
+    const top = sampleLayerHeight(map, L, x, y);
+    if (top > from && top <= to) return true;
+  }
+  return false;
+}
+
+/**
  * The surface over (x, y) as the drowning check asks for it
  * (`terrain_surface_at` from the mech's own position, player.c 0x00446e5d):
  * the cell's water where it is water, else the ground.
@@ -2666,8 +3052,6 @@ function fireSlot(state: SimState, player: number, id: number, slot: number, w: 
     gap = blk.roundGap;
   }
   state.burstLeft[k] = left;
-  // The Flamethrower's time profile is Metropolis' (balance.ts FLAME_PULSE_TICKS).
-  if (w.delivery === "flame") gap = FLAME_PULSE_TICKS * WEAPON_UNITS_PER_TICK;
   cd[id] += gap;
   // The last powered round: back to block A, its burst counter from A.
   if (powered && allowance - 1 <= 0) state.burstLeft[k] = w.a.rounds;
@@ -2713,30 +3097,25 @@ function deliver(
   const fy = ent.aimY[shooter];
   switch (w.delivery) {
     case "hitscan":
-    case "flame":
       directShot(state, shooter, player, w, blk, slot, lock, powered);
+      return true;
+    case "flame":
+      // The attached sustain (sustain.ts flameFire): its trail's nodes hurt.
+      // No line's end: the reach the event carries is zero.
+      flameFire(state, SUSTAIN_HOST, shooter, player, lock, blk.damage, powered);
+      pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     case "beam":
       beamShot(state, shooter, player, w, blk, slot, lock, powered);
       return true;
     case "shockwave": {
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
-      // Self-centred pulse at the shooter's feet — ignores aim and lock.
-      blastAt(
-        state,
-        ent.posX[shooter],
-        ent.posY[shooter],
-        ent.team[shooter],
-        player,
-        blk.damage,
-        blk.blast,
-        w.projKind,
-        BLAST_FLAT | BLAST_RIVAL,
-      );
+      // The block's shell on the mech (sustain.ts shockwaveFire).
+      shockwaveFire(state, shooter, player, blk.damage, powered, SHOCKWAVE_START_RADIUS);
       return true;
     }
     case "mine": {
-      if (!spawnMine(state, shooter, player, w.projKind, blk)) return false;
+      if (!spawnMine(state, shooter, player, w.projKind, blk, w.code)) return false;
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     }
@@ -2781,6 +3160,7 @@ function deliver(
       const id = spawnArced(state, x, y, h, tx, ty, th, blk.launchSpeed, blk.gravity);
       if (id < 0) return false;
       armRound(state, id, shooter, player, w.projKind, blk, flags, -1);
+      state.ent.shape[id] = playerRoundShape(state, w.code);
       // The Plasma Flare keeps its shell for the second press.
       if ((blk.flags & WEAPON_FLAG_KEEP) !== 0) state.keptRound[player] = id;
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
@@ -2823,6 +3203,7 @@ function deliver(
         if (id < 0) break;
         const flags = (homing ? ROUND_HOMING : 0) | ROUND_RIVAL;
         armRound(state, id, shooter, player, w.projKind, blk, flags, lock);
+        state.ent.shape[id] = playerRoundShape(state, w.code);
         any = true;
       }
       if (!any) return false;
@@ -2892,15 +3273,72 @@ function directShot(
   } else if (lock >= 0) {
     applyDamage(state, lock, blk.damage, player, true);
   }
+  // 0x00459a6a: the Electric Gun's block B jumps on from the lock it reached.
+  if (powered && blk.kind === KIND_DIRECT_ELECTRIC && lock >= 0) {
+    electricArcs(state, shooter, player, w, blk, lock);
+  }
+}
+
+/** The Electric Gun's kind byte (0x0b), the one `player_fire_direct` links. */
+const KIND_DIRECT_ELECTRIC = 0x0b;
+
+/**
+ * The powered Electric Gun's jump, `player_arc` (retail 0x00459bd0, RE M3-GL):
+ * one draw of the PRNG picks where a walk over every entity slot starts
+ * (`game_rand() % n`, then on with a wrap, 0x00459bf6..0x00459dc2); a body the
+ * player's lock could take (the walk's refusals: dead, the lock itself, the
+ * shooter's own team, flag bit 0 — isLockable's reading of that bit) whose
+ * reference point is inside a cube of half-side 4 m about the lock's (each axis
+ * `< 0x8000` wu, 0x00459c54..0x00459ca4) is sent block B's damage, at most
+ * ELECTRIC_ARC_HITS of them: the third that fits ends the walk. Each jump draws
+ * a link from the lock to the body (EV_GUN_ARC). The jumps start from the lock,
+ * not from each other, and a line that hit a wall never gets here
+ * (0x00459a7a hands `player_arc` no source then).
+ */
+function electricArcs(
+  state: SimState,
+  shooter: number,
+  player: number,
+  w: WeaponDef,
+  blk: WeaponBlock,
+  source: number,
+): void {
+  const ent = state.ent;
+  const n = ent.high;
+  const drawn = randU32(state); // 0x00459bf6, before the count is tested
+  if (n <= 0) return;
+  const sx = Math.floor(ent.posX[source] * WU_PER_METRE);
+  const sy = Math.floor(ent.posY[source] * WU_PER_METRE);
+  const sh = Math.floor((ent.height[source] + entityRefHeight(state, source)) * WU_PER_METRE);
+  let remaining = ELECTRIC_ARC_HITS;
+  let index = drawn % n;
+  for (let walked = 0; walked < n; walked++) {
+    const c = index;
+    index += 1;
+    if (index >= n) index = 0;
+    if (c === source || !isLockable(state, player, shooter, c)) continue;
+    const dx = Math.abs(Math.floor(ent.posX[c] * WU_PER_METRE) - sx);
+    if (dx >= ELECTRIC_ARC_AXIS_WU) continue;
+    const dy = Math.abs(Math.floor(ent.posY[c] * WU_PER_METRE) - sy);
+    if (dy >= ELECTRIC_ARC_AXIS_WU) continue;
+    const ch = Math.floor((ent.height[c] + entityRefHeight(state, c)) * WU_PER_METRE);
+    if (Math.abs(ch - sh) >= ELECTRIC_ARC_AXIS_WU) continue;
+    remaining -= 1;
+    if (remaining < 0) return;
+    pushEvent(state.events, EV_GUN_ARC, source, c, weaponShotPayload(w.id, 0, true));
+    // Operation 0x0e, kind 8, the block's +0x0c (0x00459d88..0x00459dab).
+    applyDamage(state, c, blk.damage, player, true);
+  }
 }
 
 /**
- * The Concussion Beam (kind 0x11, `sustain_aimed_fire_block`): an aimed beam to
- * the lock — or its range ahead, or as far toward the lock as its range goes —
- * that bursts with the record's blast and linear falloff at its end. How the
- * original spreads the beam's damage over time was not established; this is
- * Metropolis' instant beam carrying the original's per-hit damage, radius and
- * reach (fcop-re/player-and-weapons.md §9.1).
+ * The Concussion Beam (kind 0x11, `sustain_aimed_fire_block` 0x0044b5b0): the
+ * aimed sustain from the muzzle (sustain.ts beamFire), whose trail's segment
+ * hurts every body it reaches once a shot. Its direction: with a lock and the
+ * record's positive speed, the intercept lead (`cact_discharge_lead`, here
+ * leadAim at the block's speed as for kind 2, its details not established),
+ * climbing to the lock's reference point; with no lock the gun block's own
+ * orientation, the facing.
  */
 function beamShot(
   state: SimState,
@@ -2913,42 +3351,41 @@ function beamShot(
   powered: boolean,
 ): void {
   const ent = state.ent;
-  const ox = ent.posX[shooter];
-  const oy = ent.posY[shooter];
   let ux = ent.aimX[shooter];
-  let uy = ent.aimY[shooter];
-  let len = blk.range;
+  let uz = ent.aimY[shooter];
+  let uy = 0;
   if (lock >= 0) {
-    const dx = ent.posX[lock] - ox;
-    const dy = ent.posY[lock] - oy;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d > 1e-6) {
-      ux = dx / d;
-      uy = dy / d;
-      if (d < len) len = d;
+    const mx = ent.posX[shooter] + ux * MUZZLE_OFFSET;
+    const my = ent.posY[shooter] + uz * MUZZLE_OFFSET;
+    let dx = ent.posX[lock] - mx;
+    let dz = ent.posY[lock] - my;
+    const flat = Math.sqrt(dx * dx + dz * dz);
+    if (blk.speed > 0 && leadAimFrom(state, mx, my, lock, blk.speed)) {
+      dx = leadScratch.x * flat;
+      dz = leadScratch.y * flat;
+    }
+    const dh =
+      ent.height[lock] + entityRefHeight(state, lock) - (ent.height[shooter] + MUZZLE_HEIGHT);
+    const len = Math.sqrt(dx * dx + dz * dz + dh * dh);
+    if (len > 1e-6) {
+      ux = dx / len;
+      uz = dz / len;
+      uy = dh / len;
     }
   }
-  let ex = ox + ux * len;
-  let ey = oy + uy * len;
-  const wallT = segmentBlockT(state.map, ox, oy, ex, ey);
-  if (wallT >= 0) {
-    len *= wallT;
-    ex = ox + ux * len;
-    ey = oy + uy * len;
-  }
-  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, len, powered));
-  blastAt(
-    state,
-    ex,
-    ey,
-    ent.team[shooter],
-    player,
-    blk.damage,
-    blk.blast,
-    PROJ_BEAM,
-    BLAST_EMIT | BLAST_RIVAL,
-  );
+  beamFire(state, SUSTAIN_HOST, shooter, player, lock, blk.damage, powered, ux, uy, uz);
+  pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
 }
+
+/**
+ * What sustain.ts asks of the sim: the damage bookkeeping (an X1-Alpha's
+ * weapon, so `byRival`) and the bodies' sizes.
+ */
+const SUSTAIN_HOST: SustainHost = {
+  hurt: (state, target, amount, player) => applyDamage(state, target, amount, player, true),
+  radius: (state, id) => entityRadius(state, id),
+  refHeight: (state, id) => entityRefHeight(state, id),
+};
 
 /** blastAt options. */
 const BLAST_EMIT = 1;
@@ -2965,9 +3402,9 @@ const BLAST_RIVAL = 4;
  * 0x0042f170) falls off linearly over HORIZONTAL distance, centre to centre:
  * damage * (r - d) / r inside r, truncated, nothing at 0 (fcop-fidelity.md W1).
  * BLAST_FLAT keeps Metropolis' full-damage pulse to the radius plus the target's
- * own: the Shockwave Generator's (whose time profile was not established) and the
- * Warden's bomb (Metropolis' own weapon). Own team and projectiles are skipped
- * (Metropolis has no friendly fire).
+ * own: the Warden's bomb's (Metropolis' own weapon; the Shockwave Generator's is
+ * the original's expanding shell since SIM_VERSION 105, sustain.ts). Own team and
+ * projectiles are skipped (Metropolis has no friendly fire).
  */
 function blastAt(
   state: SimState,
@@ -3166,8 +3603,12 @@ function armRound(
   ent.ammoA[id] = blk.damage;
   ent.aux[id] = blk.blast;
   ent.ammoB[id] = flags;
-  ent.timerA[id] = blk.fuseTicks > 0 ? blk.fuseTicks : ROUND_MAX_TICKS;
-  if ((flags & ROUND_ARC) === 0) {
+  if ((flags & ROUND_ARC) !== 0) {
+    // Type 7 has no lifetime: the ground, a body, the second press or its range.
+    ent.timerA[id] = 0;
+    noteArcOwner(state, id, shooter);
+  } else {
+    ent.timerA[id] = blk.fuseTicks > 0 ? blk.fuseTicks : ROUND_MAX_TICKS;
     // A missile: launch speed along its direction, accelerating to its top.
     const sp = blk.launchSpeed;
     ent.cooldownA[id] = sp;
@@ -3182,8 +3623,42 @@ function armRound(
 /** A safety lifetime for a round whose record carries no fuse, ticks. */
 const ROUND_MAX_TICKS = 300;
 
+/**
+ * An arced round keeps its owner's reference point at its launch
+ * (`cact_round_construct` 0x00423d06, +0xc8) for its range kill, in
+ * `roundLaunch` (x, y; the other two words zero). The owner is the craft that
+ * launched it (the X1's partner, its upper half, stands on the mech; the Sky
+ * Captain), its point taken at its position: Metropolis places no reference
+ * point off a body's axis.
+ */
+function noteArcOwner(state: SimState, id: number, owner: number): void {
+  const L = id * 4;
+  state.roundLaunch[L] = state.ent.posX[owner];
+  state.roundLaunch[L + 1] = state.ent.posY[owner];
+  state.roundLaunch[L + 2] = 0;
+  state.roundLaunch[L + 3] = 0;
+}
+
+/**
+ * Type 7's range kill (`round_orient` 0x00423b28): `vec_distance_xz` (0x00458000,
+ * the larger plus the smaller's half rounded up, in world units) from the
+ * round's position to its owner's launch point, over ARC_ROUND_RANGE_WU.
+ */
+function arcOutOfRange(state: SimState, id: number): boolean {
+  const L = id * 4;
+  const ent = state.ent;
+  let dx =
+    Math.floor(ent.posX[id] * WU_PER_METRE) - Math.floor(state.roundLaunch[L] * WU_PER_METRE);
+  let dz =
+    Math.floor(ent.posY[id] * WU_PER_METRE) - Math.floor(state.roundLaunch[L + 1] * WU_PER_METRE);
+  if (dx < 0) dx = -dx;
+  if (dz < 0) dz = -dz;
+  const smaller = dx < dz ? dx : dz;
+  return dx + dz - (smaller >> 1) > ARC_ROUND_RANGE_WU;
+}
+
 /** Scratch for leadAim (module scope: no allocation per shot). */
-const leadScratch = { x: 0, y: 0 };
+const leadScratch = { x: 0, y: 0, d: 0 };
 
 /**
  * Intercept lead (`cact_discharge_lead`): the horizontal direction from the
@@ -3236,6 +3711,7 @@ function leadAimFrom(
   if (len < 1e-6) return false;
   leadScratch.x = ax / len;
   leadScratch.y = ay / len;
+  leadScratch.d = len;
   return true;
 }
 
@@ -3254,6 +3730,7 @@ function spawnMine(
   player: number,
   kind: number,
   blk: WeaponBlock,
+  code: number,
 ): boolean {
   const ent = state.ent;
   const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
@@ -3275,6 +3752,7 @@ function spawnMine(
   ent.aux[id] = blk.blast;
   ent.ammoB[id] = ROUND_RIVAL; // the mech's own, for the down's credit
   ent.ownerId[id] = player;
+  ent.shape[id] = playerRoundShape(state, code);
   return true;
 }
 
@@ -3301,10 +3779,13 @@ export function hitscan(
   damage: number,
   shotSlot = -1,
   shotWeaponId = 0,
+  /** The line's start, metres: the shooter's position unless a muzzle is given. */
+  fromX = Number.NaN,
+  fromY = Number.NaN,
 ): void {
   const ent = state.ent;
-  const ox = ent.posX[shooter];
-  const oy = ent.posY[shooter];
+  const ox = Number.isNaN(fromX) ? ent.posX[shooter] : fromX;
+  const oy = Number.isNaN(fromY) ? ent.posY[shooter] : fromY;
   const team = ent.team[shooter];
   let bestT = range;
   let bestId = -1;
@@ -3378,13 +3859,17 @@ export function spawnWardenBomb(
   shooter: number,
   player: number,
   target: number,
+  /** Its muzzle, metres (warden.ts captainMuzzle); the craft's position by default. */
+  fromX = state.ent.posX[shooter],
+  fromY = state.ent.posY[shooter],
+  fromH = state.ent.height[shooter],
 ): void {
   const ent = state.ent;
   const id = spawnArced(
     state,
-    ent.posX[shooter],
-    ent.posY[shooter],
-    ent.height[shooter],
+    fromX,
+    fromY,
+    fromH,
     ent.posX[target],
     ent.posY[target],
     ent.height[target],
@@ -3398,7 +3883,9 @@ export function spawnWardenBomb(
   ent.ammoA[id] = SKY_BOMB_DAMAGE;
   ent.aux[id] = SKY_BOMB_BLAST;
   ent.ammoB[id] = ROUND_ARC | ROUND_RIVAL; // linear falloff, as the original's area damage
-  ent.timerA[id] = ROUND_MAX_TICKS;
+  ent.timerA[id] = 0;
+  noteArcOwner(state, id, shooter);
+  ent.shape[id] = state.map.shapes.worldRounds[SKY_WEAPON_BOMB];
 }
 
 /**
@@ -3413,31 +3900,76 @@ export function fireWardenMissile(
   target: number,
   dx: number,
   dy: number,
+  /** Its muzzle, metres (warden.ts captainMuzzle); NaN: the old muzzle off the craft. */
+  fromX = Number.NaN,
+  fromY = Number.NaN,
+  fromH = Number.NaN,
 ): void {
   const ent = state.ent;
-  const p = spawnStraight(state, shooter, dx, dy, target, target);
+  const p = Number.isNaN(fromX)
+    ? spawnStraight(state, shooter, dx, dy, target, target)
+    : spawnStraightAt(state, ent.team[shooter], fromX, fromY, fromH, dx, dy, target, target);
   if (p < 0) return;
+  ent.shape[p] = state.map.shapes.worldRounds[SKY_WEAPON_MISSILE];
   const speed = roundSpeed(SKY_MISSILE_SPEED_RAW);
+  // `cact_missile_spawn` (0x0044d103): with the catalogue's acceleration 0 it
+  // leaves at its top speed (`top << 4`); with one (Slim's and Joke's 0x7a) at
+  // `top * 2`, an eighth, and speeds up by `delta * accel / 16` a tick to it.
+  const accelRaw = state.map.skyMissileAccel;
+  const accel = accelRaw !== 0 ? acceleration(accelRaw) : 0;
+  const launch = accelRaw !== 0 ? speed / 8 : speed;
   ent.mode[p] = PROJ_ROUND;
   state.roundFrom[p] = roundSource(ent.archetype[shooter], ent.team[shooter]);
   ent.ownerId[p] = ent.ownerId[shooter];
   ent.ammoA[p] = SKY_MISSILE_DAMAGE;
   ent.aux[p] = 0;
   ent.ammoB[p] = ROUND_HOMING | ROUND_RIVAL;
-  ent.timerA[p] = Math.ceil((SKY_MISSILE_FLIGHT / speed) * TICK_HZ) + 1;
-  ent.cooldownA[p] = speed;
-  ent.velX[p] = dx * speed;
-  ent.velY[p] = dy * speed;
+  // Its 24 m at the top speed, plus the ticks it spends below it.
+  const ramp = accel > 0 ? Math.ceil((speed - launch) / (accel * TICK_DT)) : 0;
+  ent.timerA[p] = Math.ceil((SKY_MISSILE_FLIGHT / speed) * TICK_HZ) + 1 + ramp;
+  ent.cooldownA[p] = launch;
+  ent.velX[p] = dx * launch;
+  ent.velY[p] = dy * launch;
   ent.cooldownB[p] = SKY_MISSILE_FLIGHT;
   ent.aimX[p] = speed;
-  ent.aimY[p] = 0;
+  ent.aimY[p] = accel;
   pushEvent(state.events, EV_SHOT, shooter, SHOT_SLOT_LAUNCH, SKY_WEAPON_MISSILE);
+}
+
+/** A player round's hit boxes: its loadout code's model (MapShapes.playerRounds), -1 none. */
+function playerRoundShape(state: SimState, code: number): number {
+  return code >= 0 && code < SHAPE_ROUND_SLOTS ? state.map.shapes.playerRounds[code] : -1;
+}
+
+/**
+ * Whether round `id`, at its position and flying along (dx, dy, dh), meets body
+ * `t` (the collision notice, operation 0x0b): the original's pair test against
+ * the body's colliders where both carry imported hit boxes (contact.ts,
+ * fcop-fidelity.md G1), else Metropolis' flat circle -- the body's radius plus
+ * ROUND_CONTACT_RADIUS about the round's position.
+ */
+function roundMeets(
+  state: SimState,
+  id: number,
+  t: number,
+  dx: number,
+  dy: number,
+  dh: number,
+): boolean {
+  const c = roundContact(state, id, t, dx, dy, dh);
+  if (c >= 0) return c === 1;
+  const ent = state.ent;
+  const r = entityRadius(state, t) + ROUND_CONTACT_RADIUS;
+  const ex = ent.posX[t] - ent.posX[id];
+  const ey = ent.posY[t] - ent.posY[id];
+  return ex * ex + ey * ey <= r * r;
 }
 
 /**
  * Entity `id`'s hit radius, the original's `radius_68` of the model and frame it
  * is on (balance.ts ARCHETYPE_RADIUS, MapData.radii; fcop-fidelity.md G1): the
- * mech by its form (the legs at the walker's pose, folded in hover); a
+ * mech by its legs' frame on an arena that imports its models (contact.ts
+ * legsRadius: the stride, the crouch, the ramp), else by its form; a
  * Dreadnought on a hull that walks by the frame its walk shows (I6: the type-28
  * tick re-reads the box each frame, `type5_model_select`); every other body as
  * it was spawned — its arena's own model for its role, a neutral turret by its
@@ -3448,6 +3980,18 @@ export function entityRadius(state: SimState, id: number): number {
   const ent = state.ent;
   const arch = ent.archetype[id];
   if (arch === ARCHETYPE.AVATAR) {
+    // On an arena that imports its models, the legs' box of the frame they show
+    // (`walk_select_frame` / `form_select_frame`: the crouch, the stride, the
+    // transform's ramp); else the two poses.
+    const p = ent.ownerId[id];
+    if (
+      state.map.shapes.tables.length > 0 &&
+      p >= 0 &&
+      p < MAX_PLAYERS &&
+      state.avatarId[p] === id
+    ) {
+      return legsRadius(state.walker.legs.frame[p]);
+    }
     return ent.mode[id] === MODE_HOVER ? state.map.radii.hover : state.map.radii.walker;
   }
   if (arch === ARCHETYPE.JUGGERNAUT) {
@@ -3466,14 +4010,26 @@ export function entityRadius(state: SimState, id: number): number {
  * How far `id`'s reference point stands above its height, metres: what the
  * original aims at and measures to (`previous`, box 0 of the model's frame
  * placed through the orientation — player.c 0x0044702f, turret.c, aircraft.c,
- * mount.c). The mech's follows its form and a walking hull's its frame, as
- * their radii do; a body with none imported stands at MUZZLE_HEIGHT.
+ * mount.c). The mech's follows its legs' frame and a walking hull's its
+ * frame, as their radii do; a body with none imported stands at MUZZLE_HEIGHT.
+ * The height only: the contact sweep places the whole centre (contact.ts).
  */
 export function entityRefHeight(state: SimState, id: number): number {
   const ent = state.ent;
   const arch = ent.archetype[id];
   const refs = state.map.refHeights;
-  if (arch === ARCHETYPE.AVATAR) return ent.mode[id] === MODE_HOVER ? refs.hover : refs.walker;
+  if (arch === ARCHETYPE.AVATAR) {
+    const p = ent.ownerId[id];
+    if (
+      state.map.shapes.tables.length > 0 &&
+      p >= 0 &&
+      p < MAX_PLAYERS &&
+      state.avatarId[p] === id
+    ) {
+      return legsRefHeight(state.walker.legs.frame[p]);
+    }
+    return ent.mode[id] === MODE_HOVER ? refs.hover : refs.walker;
+  }
   if (arch === ARCHETYPE.JUGGERNAUT) {
     const byFrame = refs.dreadnoughtByFrame;
     const team = ent.team[id];
@@ -3482,6 +4038,28 @@ export function entityRefHeight(state: SimState, id: number): number {
   }
   const h = ent.refHeight[id];
   return Number.isNaN(h) ? MUZZLE_HEIGHT : h;
+}
+
+/**
+ * Down at or below zero, and not a crashing aircraft: a jet, Fortress or Sky
+ * Captain tumbling to the ground is still an actor the original's searches,
+ * shooters, guided rounds and locks keep (they drop a target when its serial
+ * changes, which the death at the landing does; `cact_find_target` skips the
+ * flags the landing sets).
+ */
+export function downed(state: SimState, t: number): boolean {
+  const ent = state.ent;
+  if (ent.hp[t] > 0) return false;
+  const a = ent.archetype[t];
+  if (a === ARCHETYPE.GUARDIAN || a === ARCHETYPE.FORTRESS) return state.air.phase[t] !== AIR_CRASH;
+  if (
+    a === ARCHETYPE.WARDEN &&
+    state.wardenPlayer >= 0 &&
+    state.avatarId[state.wardenPlayer] === t
+  ) {
+    return state.captain.fly !== SKY_CRASH;
+  }
+  return true;
 }
 
 /**
@@ -3515,10 +4093,21 @@ function applyDamage(
   ent.aux[target] = attacker + 1;
   // The Sky Captain remembers its killing hit too (+0x8c, `cact_base_op9`
   // 0x0041a707), which its death reads for the X1's Walker Kills.
-  if (ent.archetype[target] === ARCHETYPE.AVATAR || ent.archetype[target] === ARCHETYPE.WARDEN) {
+  // A mech's down reads it at once; the captain's at its crash's landing,
+  // which resolves the hitter's serial then: it keeps the life (`born`) of the
+  // mech whose craft hit it, 0 for anyone else's hit.
+  if (ent.archetype[target] === ARCHETYPE.AVATAR) {
     const p = ent.ownerId[target];
     if (p >= 0 && p < MAX_PLAYERS && state.avatarId[p] === target) {
       state.rivalHit[p] = byRival ? 1 : 0;
+    }
+  } else if (ent.archetype[target] === ARCHETYPE.WARDEN) {
+    const p = ent.ownerId[target];
+    if (p >= 0 && p < MAX_PLAYERS && state.avatarId[p] === target) {
+      const mech = attacker >= 0 && attacker < MAX_PLAYERS ? state.avatarId[attacker] : -1;
+      // Only a hit that leaves it down rewrites the credit (`cact_base_op11`
+      // 0x0041a7ef; `cact_base_op9` likewise), at Metropolis' threshold of 0.
+      if (ent.hp[target] <= 0) state.rivalHit[p] = byRival && mech >= 0 ? ent.born[mech] : 0;
     }
   }
   pushEvent(state.events, EV_HIT, target, attacker, damage);
@@ -3551,8 +4140,14 @@ function angleDelta(from: number, to: number): number {
 
 /**
  * Turrets and units acquire a hostile and fire. Owned turrets defend against
- * avatars AND units; neutral dummies keep their Phase 1 role and only ever
- * engage avatars. Turrets never target turrets.
+ * avatars, units AND the other side's turrets; neutral dummies keep their Phase
+ * 1 role and only ever engage avatars. A team turret's record searches by team
+ * (`target_type` 4, `cact_find_target` 0x0043bceb: the candidate's +0x18 against
+ * the other side's), and nothing in that search looks at a type: a turret of
+ * the other side carries no flag bit 0 (record flags 0x148, `turret_construct`
+ * sets bit 0 only on a NeutralTurret, 0x0041c1ec, which its capture clears,
+ * 0x0041cb55) and is found
+ * like any body, at priority 0 (fcop-fidelity.md U4).
  *
  * Every shooter runs the original's model on its weapon profile (the arena's
  * records, or balance.ts ORIGINAL_WEAPON_PROFILES where it has none;
@@ -3675,7 +4270,7 @@ function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
       found =
         ent.ownerId[id] < 0
           ? nearestEnemyAvatar(state, id, w.range)
-          : nearestEnemyInRange(state, id, w.range, true, w.priority === 1);
+          : nearestEnemyInRange(state, id, w.range, false, w.priority === 1);
     }
     if (found >= 0) target = found;
   }
@@ -3687,31 +4282,121 @@ function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
     return;
   }
   turretSlew(state, id, target, w);
-  if (!aimRound(state, id, target, w)) return;
-  const fx = cosLUT(ent.yaw[id]);
-  const fy = sinLUT(ent.yaw[id]);
-  const blocked = segmentBlocked(
-    state.map,
-    ent.posX[id],
-    ent.posY[id],
-    ent.posX[target],
-    ent.posY[target],
-  );
-  if (blocked || (w.arcCos > -1 && aimScratch.x * fx + aimScratch.y * fy < w.arcCos)) {
+  // The round leaves from the gun's muzzle, aimed from there (`cact_weapon_discharge`).
+  placeTurretMuzzle(state, id);
+  const mx = gunScratch.mx;
+  const my = gunScratch.my;
+  const mh = gunScratch.mh;
+  if (!aimFrom(state, mx, my, target, w)) return;
+  const blocked = segmentBlocked(state.map, mx, my, ent.posX[target], ent.posY[target]);
+  const dh = ent.height[target] + entityRefHeight(state, target) - mh;
+  const facing = arcDot(cosLUT(ent.yaw[id]), sinLUT(ent.yaw[id]), ent.pitch[id], dh);
+  if (blocked || (w.arcCos > -1 && facing < w.arcCos)) {
     // Put back: due again once the clock has run the retry delay back up.
     ent.aimY[id] = PHASE_INSIDE;
     ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
     return;
   }
-  fireRound(state, id, target, w);
+  const p = spawnStraightAt(
+    state,
+    ent.team[id],
+    mx,
+    my,
+    mh,
+    aimScratch.x,
+    aimScratch.y,
+    w.guided === 1 ? target : -1,
+    target,
+  );
+  if (p < 0) return;
+  armWorldRound(state, id, p, w);
+  ent.aimY[id] = PHASE_BETWEEN;
 }
 
-/** A turret's gun follows its target at the record's turn rate (instant without one). */
+/**
+ * A turret's gun follows its target at the record's turn rate (instant without
+ * one), in yaw and in pitch: every PA turret record sets flag 0x02, which the
+ * construct turns into TURRET_DF_PITCH 0x08 of +0xdf (`turret_construct`, RE
+ * turret.c 874-877), so the tick takes the target's elevation too
+ * (turretPitchWanted) and turns both axes by the same `turn_rate * dt`
+ * (0x0041c6fa / 0x0041c74f, `turret_turn`).
+ */
 function turretSlew(state: SimState, id: number, target: number, w: MapWeapon): void {
   const ent = state.ent;
   const bearing = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
   if (w.turnSpeed > 0) slewTo(ent, id, bearing, w.turnSpeed);
   else ent.yaw[id] = bearing;
+  turretPitchTo(ent, id, turretPitchWanted(state, id, target), w);
+}
+
+/** Turret `id`'s gun model (MapData.turretGuns): a neutral spot's, else the type-8 gun. */
+function turretGunOf(state: SimState, id: number): MapTurretGun {
+  const k = state.ent.turretGun[id];
+  const guns = state.map.turretGuns;
+  return k > 0 && k <= guns.neutral.length ? guns.neutral[k - 1] : guns.baseTurret;
+}
+
+/**
+ * The pitch turret `id`'s gun wants on `target` (`turret_tick`
+ * 0x0041c5f8..0x0041c67e): the elevation of the target's reference point over
+ * the gun's, the horizontal run the octagonal length of the world-unit delta
+ * (`turret_distance`, octagonalLength), negated before the shift — a target above
+ * is a negative pitch — and clamped to an eighth of a turn either way
+ * (TURRET_PITCH_LIMIT). The gun's reference point stands on its base's point 0
+ * plus its box's centre: entityRefHeight carries both (MapData.refHeights since
+ * SIM_VERSION 112); the box's horizontal offset, and its turn with the pitch,
+ * are left out, as for every reference point (W5). `math_angle_of` is
+ * atan2Poly.
+ */
+function turretPitchWanted(state: SimState, id: number, target: number): number {
+  const ent = state.ent;
+  const dx = Math.trunc((ent.posX[target] - ent.posX[id]) * WU_PER_METRE);
+  const dz = Math.trunc((ent.posY[target] - ent.posY[id]) * WU_PER_METRE);
+  const gun = ent.height[id] + entityRefHeight(state, id);
+  const dy = (ent.height[target] + entityRefHeight(state, target) - gun) * WU_PER_METRE;
+  const want = Math.floor(-atan2Poly(dy, octagonalLength(dx, dz)) / ANGLE_UNIT);
+  if (want < -TURRET_PITCH_LIMIT) return -TURRET_PITCH_LIMIT;
+  if (want > TURRET_PITCH_LIMIT) return TURRET_PITCH_LIMIT;
+  return want;
+}
+
+/**
+ * Turns turret `id`'s pitch toward `want` by at most the yaw's own rate, in
+ * angle units (`turret_turn` on +0xf4, 0x0041c74b..0x0041c78c: the same
+ * `turn_rate * dt`, never past it; within +-0x200 the 12-bit fold never wraps).
+ */
+function turretPitchTo(ent: EntityStore, id: number, want: number, w: MapWeapon): void {
+  const now = ent.pitch[id];
+  if (now === want) return;
+  if (w.turnSpeed <= 0) {
+    ent.pitch[id] = want;
+    return;
+  }
+  const rate = Math.floor(w.turnSpeed / ANGLE_UNIT + 0.5);
+  const d = want - now;
+  ent.pitch[id] = d > rate ? now + rate : d < -rate ? now - rate : want;
+}
+
+/**
+ * Places turret `id`'s muzzle in the world into gunScratch.mx / my / mh: its gun
+ * model's point 0 (MapTurretGun) through `math_matrix_from_angles(yaw, pitch,
+ * 0)` — the pitch first, (y cos p - z sin p) up and (y sin p + z cos p) ahead,
+ * then the yaw, glb x across as the Dreadnought's muzzle (placeGun) — from the
+ * gun's position on its base's point 0 (`cact_weapon_discharge` 0x0044d98d).
+ */
+function placeTurretMuzzle(state: SimState, id: number): void {
+  const ent = state.ent;
+  const gun = turretGunOf(state, id);
+  const p = ent.pitch[id];
+  const cp = cosUnits(p);
+  const sp = sinUnits(p);
+  const up = gun.my * cp - gun.mz * sp;
+  const ahead = gun.my * sp + gun.mz * cp;
+  const c = cosLUT(ent.yaw[id]);
+  const s = sinLUT(ent.yaw[id]);
+  gunScratch.mx = ent.posX[id] + ahead * c + gun.mx * s;
+  gunScratch.my = ent.posY[id] + ahead * s - gun.mx * c;
+  gunScratch.mh = ent.height[id] + gun.stand + up;
 }
 
 /**
@@ -3728,6 +4413,8 @@ function turretRest(ent: EntityStore, id: number, w: MapWeapon): void {
   const rest = ent.restYaw[id];
   if (w.turnSpeed > 0) slewTo(ent, id, rest, w.turnSpeed);
   else ent.yaw[id] = rest;
+  // And the pitch back to level (0x0041c687: `xor eax, eax`).
+  turretPitchTo(ent, id, 0, w);
 }
 
 /**
@@ -3750,7 +4437,7 @@ export function forgetTurretTarget(ent: EntityStore, id: number): void {
 /** The shooter's own keep-target test: alive, still an enemy, inside reach. */
 function shooterTargetValid(state: SimState, id: number, t: number, range: number): boolean {
   const ent = state.ent;
-  if (!ent.alive[t] || ent.hp[t] <= 0 || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
+  if (!ent.alive[t] || downed(state, t) || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
   const team = ent.team[t];
   if (team === ent.team[id] || team === TEAM_NEUTRAL) return false;
   const dx = ent.posX[t] - ent.posX[id];
@@ -3782,6 +4469,7 @@ function shooterTargetValid(state: SimState, id: number, t: number, range: numbe
 function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
   const ent = state.ent;
   let target = ent.cooldownC[id] - 1;
+  const inside = ent.aimY[id] === PHASE_INSIDE;
   const due = shooterDue(ent, id, w);
   if (target >= 0 && !ent.alive[target]) target = -1;
   if (!due) {
@@ -3789,6 +4477,8 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
     if (target >= 0) faceTarget(ent, id, target);
     return;
   }
+  // A round coming due flips an ALTERNATE shooter's muzzle (0x0044e673).
+  if (inside && w.alternate === 1) state.shooterMuzzle[id] ^= 1;
   const range = unitRange(state, id);
   if (target >= 0 && !shooterTargetValid(state, id, target, range)) target = -1;
   if (target < 0) {
@@ -3806,6 +4496,34 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
     return;
   }
   faceTarget(ent, id, target);
+  if (unitMuzzle(state, id)) {
+    // The round from the model point its shooter's +0x23 names, through the
+    // body's matrix, aimed and traced from there (`cact_weapon_discharge`
+    // 0x0044d98d, `discharge_launch`'s trace from the muzzle).
+    if (!aimFrom(state, gunScratch.mx, gunScratch.my, target, w)) return;
+    if (
+      segmentBlocked(state.map, gunScratch.mx, gunScratch.my, ent.posX[target], ent.posY[target])
+    ) {
+      ent.aimY[id] = PHASE_INSIDE;
+      ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
+      return;
+    }
+    const p = spawnStraightAt(
+      state,
+      ent.team[id],
+      gunScratch.mx,
+      gunScratch.my,
+      gunScratch.mh,
+      aimScratch.x,
+      aimScratch.y,
+      w.guided === 1 ? target : -1,
+      target,
+    );
+    if (p < 0) return;
+    armWorldRound(state, id, p, w);
+    ent.aimY[id] = PHASE_BETWEEN;
+    return;
+  }
   if (!aimRound(state, id, target, w)) return;
   if (segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[target], ent.posY[target])) {
     ent.aimY[id] = PHASE_INSIDE;
@@ -3815,13 +4533,61 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
   fireRound(state, id, target, w);
 }
 
+/**
+ * A unit's muzzle (fcop-fidelity.md W5, U1, U4): the model point its shooter's
+ * +0x23 names -- 0 from `cact_shooter_init` (0x0044ea00), flipped between 0
+ * and 1 every round by an ALTERNATE shooter (`cact_shooter_step` 0x0044e673;
+ * SimState.shooterMuzzle) -- placed through the body's matrix at its position,
+ * the model's origin (`cact_model_point` via 0x0044d98d; orient.ts bodyFrame):
+ * a route follower's hull (the tank's bitfield 0x200, point 0), an aircraft's
+ * (the jet's 0x202, point 0; the Flying Fortress's 0x220, points 0 and 1).
+ * Into gunScratch.mx / my / mh. False for any other unit, a tank off the road
+ * graph, or an arena that imports no model point (the old muzzle then stands).
+ */
+function unitMuzzle(state: SimState, id: number): boolean {
+  const ent = state.ent;
+  const sh = state.map.shapes;
+  const a = ent.archetype[id];
+  const u =
+    a === ARCHETYPE.RUNNER
+      ? followsRoutes(state)
+        ? sh.tank
+        : null
+      : a === ARCHETYPE.GUARDIAN
+        ? sh.jet
+        : a === ARCHETYPE.FORTRESS
+          ? sh.fortress
+          : null;
+  return u !== null && bodyMuzzle(state, id, u, state.shooterMuzzle[id]);
+}
+
+/**
+ * Point `index` of unit shape `u` through body `id`'s matrix at its position,
+ * into gunScratch.mx / my / mh; false where the model has no such point.
+ */
+export function bodyMuzzle(state: SimState, id: number, u: MapUnitShape, index: number): boolean {
+  if (index >= u.muzzles.length) return false;
+  const ent = state.ent;
+  const f = hullFrame;
+  bodyFrame(f, state, id);
+  const [x, y, z] = u.muzzles[index];
+  // The glb's x is the model's negated.
+  gunScratch.mx = ent.posX[id] - x * f.ax[0] + y * f.ay[0] + z * f.az[0];
+  gunScratch.my = ent.posY[id] - x * f.ax[1] + y * f.ay[1] + z * f.az[1];
+  gunScratch.mh = ent.height[id] - x * f.ax[2] + y * f.ay[2] + z * f.az[2];
+  return true;
+}
+
 /** A unit's hull (or gun) turns to its target at once. */
 function faceTarget(ent: EntityStore, id: number, target: number): void {
   ent.yaw[id] = atan2Poly(ent.posY[target] - ent.posY[id], ent.posX[target] - ent.posX[id]);
 }
 
-/** Scratch: the aim aimRound computed (module scope, no allocation per shot). */
-const aimScratch = { x: 0, y: 0 };
+/**
+ * Scratch: the aim aimRound computed, its horizontal unit vector and the
+ * horizontal distance to the point aimed at (module scope, no allocation per shot).
+ */
+const aimScratch = { x: 0, y: 0, d: 0 };
 
 /**
  * The round's horizontal aim at `target`: with an intercept lead for a lead-aimed
@@ -3829,19 +4595,7 @@ const aimScratch = { x: 0, y: 0 };
  * stands on the shooter.
  */
 function aimRound(state: SimState, id: number, target: number, w: MapWeapon): boolean {
-  if (w.lead === 1 && leadAim(state, id, target, w.speed)) {
-    aimScratch.x = leadScratch.x;
-    aimScratch.y = leadScratch.y;
-    return true;
-  }
-  const ent = state.ent;
-  const dx = ent.posX[target] - ent.posX[id];
-  const dy = ent.posY[target] - ent.posY[id];
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 1e-6) return false;
-  aimScratch.x = dx / len;
-  aimScratch.y = dy / len;
-  return true;
+  return aimFrom(state, state.ent.posX[id], state.ent.posY[id], target, w);
 }
 
 /**
@@ -3870,6 +4624,7 @@ function fireRound(state: SimState, id: number, target: number, w: MapWeapon): v
 function armWorldRound(state: SimState, id: number, p: number, w: MapWeapon): void {
   const ent = state.ent;
   ent.mode[p] = PROJ_ROUND;
+  ent.shape[p] = w.round;
   state.roundFrom[p] = roundSource(ent.archetype[id], ent.team[id]);
   ent.ownerId[p] = ent.ownerId[id];
   ent.ammoA[p] = w.damage;
@@ -3885,36 +4640,57 @@ function armWorldRound(state: SimState, id: number, p: number, w: MapWeapon): vo
   pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, 0);
 }
 
-/** Scratch: a gun's mount and muzzle in the world (module scope, no allocation per tick). */
-const gunScratch = { x: 0, y: 0, h: 0, mx: 0, my: 0, mh: 0 };
+/**
+ * Scratch: a gun's mount and muzzle in the world, and its barrel's forward
+ * (module scope, no allocation per tick). bodyMuzzle writes mx / my / mh.
+ */
+export const gunScratch = { x: 0, y: 0, h: 0, mx: 0, my: 0, mh: 0, fx: 0, fy: 0, fh: 0 };
+/** Scratch: the hull's matrix and a gun's on it. */
+const hullFrame = createFrame();
 
 /**
- * Places Juggernaut `id`'s mount `m` in the world — a hull-frame point at hull +
- * z * forward + x * (sin yaw, -cos yaw), the frame the client draws the hull's
- * glb in (`cact_model_point`, turret.c 241-335), the point of the hull's
- * `frame` where it walks (the model's 3DRF of +0x70) — and its muzzle, the gun
- * model's point 0, turned by the gun's world yaw `gunYaw`, into gunScratch.
+ * Places Juggernaut `id`'s mount `m` in the world -- a hull-frame point through
+ * the hull's matrix (`cact_model_point`, turret.c 241-335; glb x the model's
+ * negated), the point of the hull's `frame` where it walks (the model's 3DRF of
+ * +0x70) -- and its muzzle, the gun model's point 0 through the gun's matrix:
+ * `math_matrix_from_angles(gunYaw, 0, 0)` over the hull's (mount.c
+ * 0x00425b8e..0x00425bb3), `gunYaw` the mount's own, 12-bit, relative to the
+ * hull. The hull's matrix is the cursor's last orientation (route.ts orient:
+ * its yaw, pitch and bank; orient.ts bodyFrame), so a hull on a slope carries
+ * its guns tilted. Into gunScratch, with the barrel's forward (row 2).
  */
 function placeGun(
-  ent: EntityStore,
+  state: SimState,
   id: number,
   m: MapGunMount,
   frame: number,
   gunYaw: number,
 ): void {
-  const c = cosLUT(ent.yaw[id]);
-  const s = sinLUT(ent.yaw[id]);
+  const ent = state.ent;
+  const f = hullFrame;
+  bodyFrame(f, state, id);
   // The hull's point in the frame it shows (a walking hull's), else its one.
-  const f = m.frames;
-  const p = f !== undefined && frame >= 0 && frame < f.length ? f[frame] : m;
-  gunScratch.x = ent.posX[id] + p.z * c + p.x * s;
-  gunScratch.y = ent.posY[id] + p.z * s - p.x * c;
-  gunScratch.h = ent.height[id] + p.y;
-  const gc = cosLUT(gunYaw);
-  const gs = sinLUT(gunYaw);
-  gunScratch.mx = gunScratch.x + m.mz * gc + m.mx * gs;
-  gunScratch.my = gunScratch.y + m.mz * gs - m.mx * gc;
-  gunScratch.mh = gunScratch.h + m.my;
+  const fr = m.frames;
+  const p = fr !== undefined && frame >= 0 && frame < fr.length ? fr[frame] : m;
+  gunScratch.x = ent.posX[id] - p.x * f.ax[0] + p.y * f.ay[0] + p.z * f.az[0];
+  gunScratch.y = ent.posY[id] - p.x * f.ax[1] + p.y * f.ay[1] + p.z * f.az[1];
+  gunScratch.h = ent.height[id] - p.x * f.ax[2] + p.y * f.ay[2] + p.z * f.az[2];
+  const g = gunYaw * ANGLE_UNIT;
+  const gc = cosLUT(g);
+  const gs = sinLUT(g);
+  // The gun's rows on the hull's: forward sin g x + cos g z, x cos g x - sin g z.
+  for (let k = 0; k < 3; k++) {
+    const x = f.ax[k];
+    const z = f.az[k];
+    f.az[k] = gs * x + gc * z;
+    f.ax[k] = gc * x - gs * z;
+  }
+  gunScratch.mx = gunScratch.x - m.mx * f.ax[0] + m.my * f.ay[0] + m.mz * f.az[0];
+  gunScratch.my = gunScratch.y - m.mx * f.ax[1] + m.my * f.ay[1] + m.mz * f.az[1];
+  gunScratch.mh = gunScratch.h - m.mx * f.ax[2] + m.my * f.ay[2] + m.mz * f.az[2];
+  gunScratch.fx = f.az[0];
+  gunScratch.fy = f.az[1];
+  gunScratch.fh = f.az[2];
 }
 
 /** An angle in radians as the original's 12-bit angle units, 0..4095. */
@@ -3992,7 +4768,7 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
     let target = state.gunTarget[k] - 1;
     if (target >= 0 && !ent.alive[target]) target = -1;
     // The mount: on its point, turned toward its target or home.
-    placeGun(ent, id, m, frame, ent.yaw[id] + state.gunYaw[k] * ANGLE_UNIT);
+    placeGun(state, id, m, frame, state.gunYaw[k]);
     let desired = 0;
     if (target >= 0) {
       const bearing = atan2Poly(ent.posY[target] - gunScratch.y, ent.posX[target] - gunScratch.x);
@@ -4017,8 +4793,7 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
     }
     state.gunTarget[k] = target + 1;
     if (target < 0) continue; // the round waits, the clock stopped
-    const yaw = ent.yaw[id] + state.gunYaw[k] * ANGLE_UNIT;
-    placeGun(ent, id, m, frame, yaw);
+    placeGun(state, id, m, frame, state.gunYaw[k]);
     if (!aimFrom(state, gunScratch.mx, gunScratch.my, target, w)) continue;
     const blocked = segmentBlocked(
       state.map,
@@ -4027,7 +4802,11 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
       ent.posX[target],
       ent.posY[target],
     );
-    if (blocked || aimScratch.x * cosLUT(yaw) + aimScratch.y * sinLUT(yaw) < w.arcCos) {
+    // Its gun never pitches on its mount (no mount sets CACT_MOUNT_AIM_PITCH;
+    // I6), so the arc is tested against the barrel's row 2 as the hull's matrix
+    // carries it: level on level ground, tilted with the hull on a slope.
+    const dh = ent.height[target] + entityRefHeight(state, target) - gunScratch.mh;
+    if (blocked || arcDotRow(gunScratch.fx, gunScratch.fy, gunScratch.fh, dh) < w.arcCos) {
       state.gunPhase[k] = PHASE_INSIDE;
       state.gunClock[k] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
       continue;
@@ -4059,7 +4838,7 @@ function targetValidFrom(
   range: number,
 ): boolean {
   const ent = state.ent;
-  if (!ent.alive[t] || ent.hp[t] <= 0 || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
+  if (!ent.alive[t] || downed(state, t) || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
   const tt = ent.team[t];
   if (tt === team || tt === TEAM_NEUTRAL) return false;
   const dx = ent.posX[t] - x;
@@ -4072,6 +4851,7 @@ function aimFrom(state: SimState, x: number, y: number, target: number, w: MapWe
   if (w.lead === 1 && leadAimFrom(state, x, y, target, w.speed)) {
     aimScratch.x = leadScratch.x;
     aimScratch.y = leadScratch.y;
+    aimScratch.d = leadScratch.d;
     return true;
   }
   const ent = state.ent;
@@ -4081,7 +4861,39 @@ function aimFrom(state: SimState, x: number, y: number, target: number, w: MapWe
   if (len < 1e-6) return false;
   aimScratch.x = dx / len;
   aimScratch.y = dy / len;
+  aimScratch.d = len;
   return true;
+}
+
+/**
+ * The firing arc's dot in three dimensions (`discharge_arc_blocks` 0x0044db71:
+ * row 2 of the gun's matrix dotted with the aim, the unit vector from the
+ * muzzle to the point aimed at, `discharge_aim_at` 0x0044daab or the lead's;
+ * fcop-fidelity.md G12). The gun's row 2 is `math_matrix_from_angles(yaw,
+ * pitch, 0)`'s, (cos p cos yaw, cos p sin yaw) across and -sin p up, `pitch` in
+ * the original's 12-bit units and sign; the aim is aimScratch's horizontal unit
+ * over its distance `aimScratch.d` and `dh` up. So a level gun (a Dreadnought's,
+ * pitch 0) refuses an aim more than 22.5° above or below it however well it is
+ * turned, and a turret's gun, which pitches, one beyond its pitch's reach.
+ */
+function arcDot(fx: number, fy: number, pitch: number, dh: number): number {
+  const d = aimScratch.d;
+  const len = Math.sqrt(d * d + dh * dh);
+  if (len < 1e-6) return 1;
+  const across = (aimScratch.x * fx + aimScratch.y * fy) * d;
+  return (across * cosUnits(pitch) - dh * sinUnits(pitch)) / len;
+}
+
+/**
+ * The firing arc's dot against a barrel's row 2 given whole, (fx, fy) across
+ * and `fh` up (`discharge_arc_blocks` 0x0044db71), with the aim as arcDot takes
+ * it: aimScratch's horizontal unit over `aimScratch.d`, and `dh` up.
+ */
+function arcDotRow(fx: number, fy: number, fh: number, dh: number): number {
+  const d = aimScratch.d;
+  const len = Math.sqrt(d * d + dh * dh);
+  if (len < 1e-6) return 1;
+  return ((aimScratch.x * fx + aimScratch.y * fy) * d + dh * fh) / len;
 }
 
 /** Phase 1 dummy-turret targeting: nearest VISIBLE enemy avatar in range. */
@@ -4520,6 +5332,7 @@ function spawnGuided(
   }
   const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
   if (id < 0) return -1;
+  ent.shape[id] = playerRoundShape(state, w.code);
   const r = blk.rec;
   const top = Math.trunc(r.speed / 300);
   ent.posX[id] = x;
@@ -4622,21 +5435,37 @@ function guidedExpire(state: SimState, id: number): void {
  * Whether `a` is told of its contact with `b` before `b` is (operation 0x0b,
  * `cact_pair_test` 0x00450190). The pair walk (`objects_pick_targets`
  * 0x0044fe40) goes over the pair grid's cells by the original's x, then z —
- * the sim's x, then y — pairing each cell with itself and its forward
- * neighbours, the earlier cell's body first; in one cell the chain is the
- * gather's in reverse (`paint_grid_insert` puts each at its head), so the
- * later-made body comes first. The bodies stand at their positions, not
- * their reference points.
+ * its rows are `previous[0] >> 15` (`paint_grid_insert` 0x004509dd), the sim's
+ * y, its columns `previous[2] >> 15`, the sim's x (stage 2 puts the original's
+ * z on the sim's x, fcop-re/ranges-turrets-capture.md) — pairing each cell
+ * with itself and its forward neighbours, the earlier cell's body first; in
+ * one cell the chain is the gather's in reverse (`paint_grid_insert` puts each
+ * at its head), so the later-made body comes first. The bodies stand at their
+ * positions, not their reference points.
  */
 export function toldFirst(state: SimState, a: number, b: number): boolean {
   const ent = state.ent;
-  const ax = Math.floor(ent.posX[a] / PAIR_CELL);
-  const bx = Math.floor(ent.posX[b] / PAIR_CELL);
-  if (ax !== bx) return ax < bx;
   const ay = Math.floor(ent.posY[a] / PAIR_CELL);
   const by = Math.floor(ent.posY[b] / PAIR_CELL);
   if (ay !== by) return ay < by;
+  const ax = Math.floor(ent.posX[a] / PAIR_CELL);
+  const bx = Math.floor(ent.posX[b] / PAIR_CELL);
+  if (ax !== bx) return ax < bx;
   return ent.born[a] > ent.born[b];
+}
+
+/**
+ * Whether the pair walk offers `a` and `b` to each other at all: it pairs a
+ * cell of the paint grid (a quarter of a terrain cell, 4 m) only with itself
+ * and its eight neighbours (`objects_pick_targets` 0x0044fe40, each pair once
+ * through the four forward offsets), so two bodies more than one cell apart on
+ * either axis are never asked operation 0x0a — whatever their distance.
+ */
+function pairCellsMeet(ent: EntityStore, a: number, b: number): boolean {
+  const dx = Math.floor(ent.posX[a] / PAIR_CELL) - Math.floor(ent.posX[b] / PAIR_CELL);
+  if (dx > 1 || dx < -1) return false;
+  const dy = Math.floor(ent.posY[a] / PAIR_CELL) - Math.floor(ent.posY[b] / PAIR_CELL);
+  return dy <= 1 && dy >= -1;
 }
 
 /**
@@ -4796,15 +5625,13 @@ function guidedTick(state: SimState, id: number): void {
       if (!ent.alive[t] || t === id) continue;
       if (ent.team[t] === ent.team[id]) continue;
       if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-      const r = entityRadius(state, t) + 0.5;
-      const dx = ent.posX[t] - x;
-      const dy = ent.posY[t] - y;
-      if (dx * dx + dy * dy > r * r) continue;
+      if (!roundMeets(state, id, t, hx, hy, hh)) continue;
       const before = ent.hp[t];
       const droneFirst = toldFirst(state, id, t);
       // A contact: the round's own serial is the credit, which resolves to
       // nobody (0x0041a811), so it is no rival's hit.
       applyDamage(state, t, ent.ammoA[id], ent.ownerId[id], false);
+      pushEvent(state.events, EV_TOUCH, t, 0, 0);
       notePush(state, t, ent.born[id], missilePushDir(state, id), ent.ammoA[id]);
       if (hug) {
         // The body's health as the drone reads it: before its own notice
@@ -4866,6 +5693,7 @@ function spawnBounce(
   const base = blk.fuseUnits;
   const jitter = randU32(state) & GRENADE_FUSE_JITTER_MASK;
   ent.timerA[id] = base + Math.trunc((base * jitter) / GRENADE_FUSE_JITTER_DIV);
+  ent.shape[id] = playerRoundShape(state, w.code);
   ent.mode[id] = w.projKind;
   ent.ownerId[id] = player;
   ent.ammoA[id] = blk.damage;
@@ -4941,10 +5769,7 @@ function bounceTick(state: SimState, id: number, radius = GRENADE_RADIUS): void 
       if (!ent.alive[t] || t === id) continue;
       if (ent.team[t] === ent.team[id]) continue;
       if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-      const r = entityRadius(state, t) + 0.5;
-      const dx = ent.posX[t] - x;
-      const dy = ent.posY[t] - y;
-      if (dx * dx + dy * dy <= r * r) {
+      if (roundMeets(state, id, t, vx, vy, vh)) {
         boom = true;
         break;
       }
@@ -5049,10 +5874,10 @@ function systemProjectiles(state: SimState): void {
       explode(state, id);
       continue;
     }
-    ent.timerA[id] -= 1;
+    const arc = (flags & ROUND_ARC) !== 0;
+    if (!arc) ent.timerA[id] -= 1;
     let vx = ent.velX[id];
     let vy = ent.velY[id];
-    const arc = (flags & ROUND_ARC) !== 0;
     let speed = arc ? 0 : ent.cooldownA[id];
     if (!arc) {
       // A missile accelerates from its launch speed to its top speed.
@@ -5114,15 +5939,24 @@ function systemProjectiles(state: SimState): void {
       ent.posX[id] = x;
       ent.posY[id] = y;
     }
-    let expired = ent.timerA[id] <= 0;
+    let expired = !arc && ent.timerA[id] <= 0;
     if (arc) {
       // Semi-implicit Euler under the round's own gravity (its record's range
       // field): velocity first, then the position.
       const before = ent.timerB[id];
       ent.timerB[id] -= ent.aimX[id] * TICK_DT;
       ent.height[id] += ent.timerB[id] * TICK_DT;
-      if ((flags & ROUND_CLUSTER) !== 0 && before > 0 && ent.timerB[id] <= 0) {
+      // The apex (0x00423e9c): the vertical speed was not negative and now is.
+      // The shell bursts and flies on (cact_round_advance has nothing after
+      // its burst loop, 0x0042406f).
+      if ((flags & ROUND_CLUSTER) !== 0 && before >= 0 && ent.timerB[id] < 0) {
         burstCluster(state, id);
+      }
+      // The tick's second half kills it past its range before anything sees
+      // its contact: a killed round is neither reaped by its health (no blast,
+      // no impact) nor paired.
+      if (arcOutOfRange(state, id)) {
+        despawn(ent, id);
         continue;
       }
     } else {
@@ -5146,15 +5980,14 @@ function systemProjectiles(state: SimState): void {
     }
     let struck = -1;
     if (!boom) {
-      // Contact fuze: any enemy non-projectile within its hit radius + 0.5.
+      // Contact fuze: the pair test against any enemy body (roundMeets). Its
+      // flight: a shell's velocity, a straight round's heading and climb.
+      const fh = arc ? ent.timerB[id] : ent.timerB[id] * speed;
       for (let t = 0; t < ent.high; t++) {
         if (!ent.alive[t] || t === id) continue;
         if (ent.team[t] === ent.team[id]) continue;
         if (ent.archetype[t] === ARCHETYPE.PROJECTILE) continue;
-        const r = entityRadius(state, t) + 0.5;
-        const dx = ent.posX[t] - ent.posX[id];
-        const dy = ent.posY[t] - ent.posY[id];
-        if (dx * dx + dy * dy <= r * r) {
+        if (roundMeets(state, id, t, vx, vy, fh)) {
           boom = true;
           struck = t;
           break;
@@ -5178,7 +6011,7 @@ function systemProjectiles(state: SimState): void {
  */
 function homingValid(state: SimState, id: number, target: number): boolean {
   const ent = state.ent;
-  if (!ent.alive[target] || ent.hp[target] <= 0) return false;
+  if (!ent.alive[target] || downed(state, target)) return false;
   if (state.buffInvis.length > 0) {
     for (let p = 0; p < MAX_PLAYERS; p++) {
       if (state.avatarId[p] !== target || state.buffInvis[p] <= 0) continue;
@@ -5191,29 +6024,29 @@ function homingValid(state: SimState, id: number, target: number): boolean {
 }
 
 /**
- * The powered Mortar's shell bursts at its apex into four fragments of its own
- * block (kind 4, the B record's damage and blast). The spread is Metropolis' own
- * (balance.ts MORTAR_FRAGMENT_SPREAD): a cross about the shell's heading.
+ * A kind-0x14 shell's burst at its apex (`cact_round_advance` 0x00423f55..
+ * 0x00424069; balance.ts CLUSTER_*): four copies of the shell, kind 4, each
+ * pushed into its own quadrant by three PRNG draws, in world units a second
+ * (8192 a metre): the original's x is the sim's y, its z the sim's x, its y
+ * up. A fragment the store cannot hold takes no draws (0x00423f82). The shell
+ * itself is left as it was.
  */
 function burstCluster(state: SimState, id: number): void {
   const ent = state.ent;
-  const vx = ent.velX[id];
-  const vy = ent.velY[id];
-  const sp = Math.sqrt(vx * vx + vy * vy);
-  const fx = sp > 1e-6 ? vx / sp : 1;
-  const fy = sp > 1e-6 ? vy / sp : 0;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0, sink = 0; sink < CLUSTER_SINK_END; i++, sink += CLUSTER_SINK_STEP) {
     const f = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[id]);
-    if (f < 0) break;
-    // Forward, back, left, right of the heading.
-    const ax = i === 0 ? fx : i === 1 ? -fx : i === 2 ? -fy : fy;
-    const ay = i === 0 ? fy : i === 1 ? -fy : i === 2 ? fx : -fx;
+    if (f < 0) continue;
+    const sideX = (i & 1) !== 0 ? CLUSTER_SIDE_HALF : -CLUSTER_SIDE_HALF;
+    const sideZ = (i & 2) !== 0 ? CLUSTER_SIDE_HALF : -CLUSTER_SIDE_HALF;
+    const ox = (randU32(state) & CLUSTER_SIDE_MASK) - CLUSTER_SIDE_HALF + sideX;
+    const down = (randU32(state) & CLUSTER_DOWN_MASK) + sink;
+    const oz = (randU32(state) & CLUSTER_SIDE_MASK) - CLUSTER_SIDE_HALF + sideZ;
     ent.posX[f] = ent.posX[id];
     ent.posY[f] = ent.posY[id];
     ent.height[f] = ent.height[id];
-    ent.velX[f] = vx + ax * MORTAR_FRAGMENT_SPREAD;
-    ent.velY[f] = vy + ay * MORTAR_FRAGMENT_SPREAD;
-    ent.timerB[f] = 0;
+    ent.velX[f] = ent.velX[id] + oz / WU_PER_METRE;
+    ent.velY[f] = ent.velY[id] + ox / WU_PER_METRE;
+    ent.timerB[f] = ent.timerB[id] - down / WU_PER_METRE;
     ent.yaw[f] = ent.yaw[id];
     ent.hp[f] = 1;
     ent.mode[f] = ent.mode[id];
@@ -5221,11 +6054,13 @@ function burstCluster(state: SimState, id: number): void {
     ent.ammoA[f] = ent.ammoA[id];
     ent.aux[f] = ent.aux[id];
     ent.ammoB[f] = ROUND_ARC | (ent.ammoB[id] & ROUND_RIVAL);
+    ent.shape[f] = ent.shape[id];
     ent.timerA[f] = ent.timerA[id];
     ent.cooldownC[f] = -1;
     ent.aimX[f] = ent.aimX[id];
+    // A fragment is a copy of the whole shell (0x00423f97): its owner's point too.
+    for (let k = 0; k < 4; k++) state.roundLaunch[f * 4 + k] = state.roundLaunch[id * 4 + k];
   }
-  despawn(ent, id);
 }
 
 /**
@@ -5266,7 +6101,11 @@ function explode(state: SimState, id: number, struck = -1): void {
     // round's own serial as the credit (`cact_base_op9` 0x0041a811), gone once
     // the round has died: it credits nobody (RE aircraft.c 0x00420e1c,
     // player.c 0x004477ab; fcop-fidelity.md V7).
-    if (struck >= 0) applyDamage(state, struck, damage, owner, false);
+    if (struck >= 0) {
+      applyDamage(state, struck, damage, owner, false);
+      // The contact is operation 0x0b: it clears the body's death mask (A19).
+      pushEvent(state.events, EV_TOUCH, struck, 0, 0);
+    }
   }
   if (pushDir !== 0) notePush(state, struck, born, pushDir, damage);
 }
@@ -5318,155 +6157,203 @@ function systemDamageDeath(state: SimState): void {
   const ent = state.ent;
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || ent.hp[id] > 0) continue;
-    if (ent.archetype[id] === ARCHETYPE.PROJECTILE) continue;
-    const killer = ent.aux[id] - 1; // -1 = environment/dummy
     const archetype = ent.archetype[id];
-    // A mech down with HARD's sinking marker (`player_op4` reads block +0xde
-    // first): no wreck and no death effects, and the short respawn below.
-    const owner = ent.ownerId[id];
-    const sunk =
-      archetype === ARCHETYPE.AVATAR &&
-      owner >= 0 &&
-      owner < MAX_PLAYERS &&
-      state.avatarId[owner] === id &&
-      state.avatarSinking[owner] !== 0;
-    if (sunk) pushEvent(state.events, EV_SUNK, id, owner, 0);
-    if (state.killPushDamage[id] !== 0) {
-      pushEvent(state.events, EV_KILL_PUSH, id, state.killPushDir[id], state.killPushDamage[id]);
-      state.killPushDamage[id] = 0;
-      state.killPushDir[id] = 0;
+    if (archetype === ARCHETYPE.PROJECTILE) continue;
+    // Below zero, an aircraft gets the original's operation 4 at the frame's end
+    // (`cact_tick_expired` after every actor's tick; fcop-fidelity.md A19, U3):
+    // `aircraft_op4` (0x00420296) puts the Sky Captain always, a jet or Flying
+    // Fortress 10 times in 16, into the crash, and it dies where it lands
+    // (units.ts aircraftTumble; the captain in warden.ts). A crash its decision
+    // pass broke off starts again here; the other 6 in 16 die at once.
+    if (
+      archetype === ARCHETYPE.WARDEN &&
+      state.wardenPlayer >= 0 &&
+      state.avatarId[state.wardenPlayer] === id
+    ) {
+      captainCrash(state, id);
+      continue;
     }
-    pushEvent(state.events, EV_DEATH, id, killer, archetype);
-    // Earn table (rules.md §3, fcop-fidelity.md R4-R7): a death pays the OTHER
-    // side whoever caused it, because the original pays from the dying actor's
-    // own death script, not from the kill credit. Neutral turrets (dummies,
-    // uncaptured pads) and consoles pay nothing. A player's avatar pays at its
-    // respawn (systemSpawning); the Warden, like the Sky Captain, when it falls.
-    const team = ent.team[id];
-    if (team === 0 || team === 1) {
-      const other = team ^ 1;
-      if (archetype === ARCHETYPE.WARDEN) {
-        avatarDown(state, team);
-        // The commander's death: First Death stamped once and its deaths, sky_ai
-        // +0x48 and +0x3e (aircraft.c 0x00420df9; at the crash's end there,
-        // which Metropolis does not model).
-        noteDown(state, team);
-        // ...and one more Walker Kill for the player's side when the hit that
-        // brought it down was that X1's own (its weapons, or a round or mine it
-        // fired): the remembered serial resolves to team slot 0's mech, whose
-        // block's +0x14 rises (aircraft.c 0x00420e1c..0x00420e57; slot 0 is
-        // always the human against the captain).
-        if (state.rivalHit[team] !== 0) bumpStat(state, other, STAT_WALKER_KILLS);
-      } else if (archetype === ARCHETYPE.TURRET) {
-        earn(state, other, POINTS_TURRET_DIES);
-        if (ent.mode[id] === TURRET_CAPTURABLE) {
-          // A captured neutral turret destroyed is an engine credit (turret.c),
-          // and one more "Turrets Destroyed" for the side that held it, never
-          // for the side that scores (`turret_score_death` 0x0041be31,
-          // 0x0041befa, 0x0041bf21). One a claim kills is neutral by then.
-          captainCredit(state, other);
-          bumpStat(state, team, STAT_TURRETS_DESTROYED);
-        }
-      } else if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN)
-        earn(state, other, POINTS_UNIT_DIES);
-      else if (archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS)
-        earn(state, other, POINTS_HEAVY_DIES);
-      // A unit's death: one more "Destroyed" of its class for the side that
-      // lost it, whoever killed it (`csac_on_spawned_death` 0x0044f16d).
-      const lost = unitStatKey(archetype, false);
-      if (lost >= 0) bumpStat(state, team, lost);
+    if (archetype === ARCHETYPE.GUARDIAN || archetype === ARCHETYPE.FORTRESS) {
+      const phase = state.air.phase[id];
+      if (phase === AIR_CRASH) continue;
+      if (phase !== AIR_LANDED && randInt(state, 16) < AIRCRAFT_CRASH_ROLL) {
+        state.air.phase[id] = AIR_CRASH;
+        aircraftCrash(state, id, airSpeedRaw(state, id));
+        continue;
+      }
     }
-    if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN) {
-      const player = ent.ownerId[id];
-      state.avatarId[player] = -1;
-      state.respawnTimer[player] =
-        archetype === ARCHETYPE.WARDEN
-          ? skyRespawnTicks(wardenLevel(state.wardenDifficulty))
-          : sunk
-            ? RESPAWN_SUNK_TICKS
-            : RESPAWN_TICKS;
-      // The marker is consumed by the down (`player_op4` reads and clears it,
-      // 0x0044761e).
-      state.avatarSinking[player] = 0;
-      if (archetype === ARCHETYPE.AVATAR) {
-        // The mech's down, any cause: First Death stamped once, its deaths
-        // (`player_op4` 0x00447764, 0x00447780).
-        noteDown(state, player);
-        // The credit is taken at the down, and only when the hit that put the
-        // mech down was the rival's own craft (`player_op4`
-        // 0x004477ab..0x00447821; fcop-fidelity.md U3, V7). With the Sky
-        // Captain: its tally of mechs put down and its rethink zeroed, so its
-        // next tick decides. Without one: the other slot's Walker Kills. A tank,
-        // jet or turret, a fall or the water credits nobody.
-        if (state.rivalHit[player] !== 0) {
-          if (state.wardenPlayer >= 0) {
-            captainCredit(state, state.wardenPlayer);
-            bumpStat(state, state.wardenPlayer, STAT_WALKER_KILLS);
-          } else {
-            bumpStat(state, player ^ 1, STAT_WALKER_KILLS);
-          }
+    downEntity(state, id);
+  }
+}
+
+/**
+ * An entity's death: its event, its side's points and figures, its slot's
+ * respawn, and its despawn. systemDamageDeath's for everything below zero but
+ * a crashing aircraft; the Sky Captain's when its tumble lands (warden.ts).
+ */
+export function downEntity(state: SimState, id: number): void {
+  const ent = state.ent;
+  const killer = ent.aux[id] - 1; // -1 = environment/dummy
+  const archetype = ent.archetype[id];
+  // A mech down with HARD's sinking marker (`player_op4` reads block +0xde
+  // first): no wreck and no death effects, and the short respawn below.
+  const owner = ent.ownerId[id];
+  const sunk =
+    archetype === ARCHETYPE.AVATAR &&
+    owner >= 0 &&
+    owner < MAX_PLAYERS &&
+    state.avatarId[owner] === id &&
+    state.avatarSinking[owner] !== 0;
+  if (sunk) pushEvent(state.events, EV_SUNK, id, owner, 0);
+  if (state.killPushDamage[id] !== 0) {
+    pushEvent(state.events, EV_KILL_PUSH, id, state.killPushDir[id], state.killPushDamage[id]);
+    state.killPushDamage[id] = 0;
+    state.killPushDir[id] = 0;
+  }
+  pushEvent(state.events, EV_DEATH, id, killer, archetype);
+  // Earn table (rules.md §3, fcop-fidelity.md R4-R7): a death pays the OTHER
+  // side whoever caused it, because the original pays from the dying actor's
+  // own death script, not from the kill credit. Neutral turrets (dummies,
+  // uncaptured pads) and consoles pay nothing. A player's avatar pays at its
+  // respawn (systemSpawning); the Warden, like the Sky Captain, when its crash
+  // lands (its death script, run by the landing, 0x00420e5b); a tumbling jet or
+  // Fortress where it lands (its script runs from `cact_base_op4`).
+  const team = ent.team[id];
+  if (team === 0 || team === 1) {
+    const other = team ^ 1;
+    if (archetype === ARCHETYPE.WARDEN) {
+      avatarDown(state, team);
+      // The commander's death, at the crash's end: First Death stamped once and
+      // its deaths, sky_ai +0x48 and +0x3e (aircraft.c 0x00420df9).
+      noteDown(state, team);
+      // ...and one more Walker Kill for the player's side when the last hit that
+      // left it below zero was that X1's own (its weapons, or a round or mine it
+      // fired), and that mech is still the one that fired: the serial is
+      // resolved here, at the landing, so a mech downed or respawned during the
+      // tumble no longer matches it (aircraft.c 0x00420e1c..0x00420e57; slot 0
+      // is always the human against the captain).
+      const hitter = state.avatarId[other];
+      if (
+        state.rivalHit[team] !== 0 &&
+        hitter >= 0 &&
+        ent.alive[hitter] &&
+        ent.born[hitter] === state.rivalHit[team]
+      ) {
+        bumpStat(state, other, STAT_WALKER_KILLS);
+      }
+    } else if (archetype === ARCHETYPE.TURRET) {
+      earn(state, other, POINTS_TURRET_DIES);
+      if (ent.mode[id] === TURRET_CAPTURABLE) {
+        // A captured neutral turret destroyed is an engine credit (turret.c),
+        // and one more "Turrets Destroyed" for the side that held it, never
+        // for the side that scores (`turret_score_death` 0x0041be31,
+        // 0x0041befa, 0x0041bf21). One a claim kills is neutral by then.
+        captainCredit(state, other);
+        bumpStat(state, team, STAT_TURRETS_DESTROYED);
+      }
+    } else if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN) {
+      earn(state, other, POINTS_UNIT_DIES);
+      // ...and its death script lowers its side's count word (27..30).
+      state.unitCount[team * 2 + (archetype === ARCHETYPE.GUARDIAN ? 1 : 0)] -= 1;
+    } else if (archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS)
+      earn(state, other, POINTS_HEAVY_DIES);
+    // A unit's death: one more "Destroyed" of its class for the side that
+    // lost it, whoever killed it (`csac_on_spawned_death` 0x0044f16d).
+    const lost = unitStatKey(archetype, false);
+    if (lost >= 0) bumpStat(state, team, lost);
+  }
+  if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN) {
+    const player = ent.ownerId[id];
+    state.avatarId[player] = -1;
+    state.respawnTimer[player] =
+      archetype === ARCHETYPE.WARDEN
+        ? skyRespawnTicks(wardenLevel(state.wardenDifficulty))
+        : sunk
+          ? RESPAWN_SUNK_TICKS
+          : RESPAWN_TICKS;
+    // The marker is consumed by the down (`player_op4` reads and clears it,
+    // 0x0044761e).
+    state.avatarSinking[player] = 0;
+    if (archetype === ARCHETYPE.AVATAR) {
+      // The mech's down, any cause: First Death stamped once, its deaths
+      // (`player_op4` 0x00447764, 0x00447780).
+      noteDown(state, player);
+      // The credit is taken at the down, and only when the hit that put the
+      // mech down was the rival's own craft (`player_op4`
+      // 0x004477ab..0x00447821; fcop-fidelity.md U3, V7). With the Sky
+      // Captain: its tally of mechs put down and its rethink zeroed, so its
+      // next tick decides. Without one: the other slot's Walker Kills. A tank,
+      // jet or turret, a fall or the water credits nobody.
+      if (state.rivalHit[player] !== 0) {
+        if (state.wardenPlayer >= 0) {
+          captainCredit(state, state.wardenPlayer);
+          bumpStat(state, state.wardenPlayer, STAT_WALKER_KILLS);
+        } else {
+          bumpStat(state, player ^ 1, STAT_WALKER_KILLS);
         }
       }
-      // Power-ups are lost when the avatar goes down (`player_respawn` clears the
-      // block-B ammunition; fcop-fidelity.md P2, P8). The cloak and invulnerability
-      // timers are NOT cleared: the original keeps counting them down while the
-      // mech is down (fcop-re/player-and-weapons.md §1).
-      for (let k = 0; k < 3; k++) state.powerAmmo[player * 3 + k] = 0;
-      state.lockTarget[player] = -1; // death drops any lock
-    } else if (archetype === ARCHETYPE.TURRET) {
-      let slotted = false;
-      for (let k = 0; k < state.dummyEntity.length; k++) {
-        if (state.dummyEntity[k] === id) {
-          state.dummyEntity[k] = -1;
-          state.dummyRespawn[k] = DUMMY_RESPAWN_TICKS;
+    }
+    // Power-ups are lost when the avatar goes down (`player_respawn` clears the
+    // block-B ammunition; fcop-fidelity.md P2, P8). The cloak and invulnerability
+    // timers are NOT cleared: the original keeps counting them down while the
+    // mech is down (fcop-re/player-and-weapons.md §1).
+    for (let k = 0; k < 3; k++) state.powerAmmo[player * 3 + k] = 0;
+    state.lockTarget[player] = -1; // death drops any lock
+  } else if (archetype === ARCHETYPE.TURRET) {
+    let slotted = false;
+    for (let k = 0; k < state.dummyEntity.length; k++) {
+      if (state.dummyEntity[k] === id) {
+        state.dummyEntity[k] = -1;
+        state.dummyRespawn[k] = DUMMY_RESPAWN_TICKS;
+        slotted = true;
+        break;
+      }
+    }
+    if (!slotted) {
+      for (let k = 0; k < state.baseTurretEntity.length; k++) {
+        if (state.baseTurretEntity[k] === id) {
+          state.baseTurretEntity[k] = -1;
+          state.baseTurretRespawn[k] = ringRespawnTicks(
+            state.map,
+            baseTurretSpot(state.map, k).team,
+          );
+          // "Base turret lost" (fcop-fidelity.md R15, voice ids 0/1).
+          pushEvent(state.events, EV_TURRET_LOST, id, ent.team[id], k);
           slotted = true;
           break;
         }
       }
-      if (!slotted) {
-        for (let k = 0; k < state.baseTurretEntity.length; k++) {
-          if (state.baseTurretEntity[k] === id) {
-            state.baseTurretEntity[k] = -1;
-            state.baseTurretRespawn[k] = ringRespawnTicks(
-              state.map,
-              baseTurretSpot(state.map, k).team,
-            );
-            // "Base turret lost" (fcop-fidelity.md R15, voice ids 0/1).
-            pushEvent(state.events, EV_TURRET_LOST, id, ent.team[id], k);
-            slotted = true;
-            break;
-          }
-        }
-      }
-      if (!slotted) {
-        // An outpost plate's team turret: back for its owner in 25 s, every time.
-        for (let j = 0; j < state.plateTurretEntity.length; j++) {
-          if (state.plateTurretEntity[j] === id) {
-            state.plateTurretEntity[j] = -1;
-            state.plateTurretRespawn[j] = OUTPOST_TURRET_RESPAWN_TICKS;
-            slotted = true;
-            break;
-          }
-        }
-      }
-      if (!slotted) {
-        // Capturable turret: husk now, back as NEUTRAL in 25 s (rules.md §5)
-        // regardless of who owned it when it died — unless an outpost claim shut
-        // its spawner (-1), which keeps it gone.
-        for (let k = 0; k < state.neutralTurretEntity.length; k++) {
-          if (state.neutralTurretEntity[k] === id) {
-            state.neutralTurretEntity[k] = -1;
-            if (state.neutralTurretRespawn[k] >= 0) {
-              state.neutralTurretRespawn[k] = NEUTRAL_TURRET_RESPAWN_TICKS;
-            }
-            break;
-          }
+    }
+    if (!slotted) {
+      // An outpost plate's team turret: back for its owner in 25 s, every time.
+      for (let j = 0; j < state.plateTurretEntity.length; j++) {
+        if (state.plateTurretEntity[j] === id) {
+          state.plateTurretEntity[j] = -1;
+          state.plateTurretRespawn[j] = OUTPOST_TURRET_RESPAWN_TICKS;
+          slotted = true;
+          break;
         }
       }
     }
-    forgetTurretTarget(ent, id);
-    despawn(ent, id);
+    if (!slotted) {
+      // Capturable turret: husk now, back as NEUTRAL in 25 s (rules.md §5)
+      // regardless of who owned it when it died — unless an outpost claim shut
+      // its spawner (-1), which keeps it gone.
+      for (let k = 0; k < state.neutralTurretEntity.length; k++) {
+        if (state.neutralTurretEntity[k] === id) {
+          state.neutralTurretEntity[k] = -1;
+          if (state.neutralTurretRespawn[k] >= 0) {
+            state.neutralTurretRespawn[k] = NEUTRAL_TURRET_RESPAWN_TICKS;
+          }
+          break;
+        }
+      }
+    }
   }
+  forgetTurretTarget(ent, id);
+  // A route follower leaves its node's occupancy (type-5 operation 5).
+  releaseRoute(state, id);
+  despawn(ent, id);
 }
 
 /**
@@ -5564,8 +6451,13 @@ export function captureRange(map: MapData): number {
  * world units with its octagonal estimate: flat first, then (except for the Sky
  * Captain, `flat`) once more with the height difference folded in
  * (`turret_op10`, fcop-re/ranges-turrets-capture.md Q2; fcop-fidelity.md R12).
+ * It is asked only of a pair the broad phase offers (pairCellsMeet): Hk's
+ * 6.15 m, Slim's and Joke's 5.75 m and even Mp's 4.55 m reach past the
+ * neighbouring 4 m cell, so whether a capture at that distance holds depends on
+ * where the cell lines fall.
  */
 function withinCapture(ent: EntityStore, id: number, tid: number, reach: number, flat: boolean) {
+  if (!pairCellsMeet(ent, id, tid)) return false;
   const r = Math.trunc(reach * CAPTURE_WU_PER_METRE);
   let d = octagonalLength(
     Math.trunc((ent.posX[id] - ent.posX[tid]) * CAPTURE_WU_PER_METRE),
@@ -6005,6 +6897,9 @@ export function step(state: SimState, inputs: TickInputs): void {
     // this tick's, and a carried rider is where its lift is before anything
     // else reads its height.
     systemLifts(state);
+    // The cockpit's aim after the mech has moved and ridden (the partner's
+    // tick ends the mech's own, 0x00447059).
+    systemCockpitAim(state);
     systemQueues(state);
     // The Warden slots in directly after the human avatars: it IS the other
     // avatar (decision layer + superplane movement + weapons + buying), so it
@@ -6017,6 +6912,9 @@ export function step(state: SimState, inputs: TickInputs): void {
     // The Riot Shield's spheres, after the rounds have moved (inert unless the
     // match offers it).
     systemShields(state);
+    // The sustained weapons' trails and shells: the effect module's frame,
+    // after every actor (sustain.ts).
+    systemSustain(state, SUSTAIN_HOST, PROJ_BEAM);
     systemDamageDeath(state);
     systemCapture(state);
     // Precinct Assault systems (rules.md §9), inert on arenas without PA data.
@@ -6151,6 +7049,16 @@ export function hash(state: SimState): number {
     h = fnv1aU32(h, (state.avatarTurnRate[p] * 2) >>> 0);
     h = fnv1aU32(h, state.avatarIdle[p] >>> 0);
   }
+  // Appended at SIM_VERSION 108: the wall contacts' pending impulse and snap.
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    h = fnv1aU32(h, state.avatarImpulse[p * 2] >>> 0);
+    h = fnv1aU32(h, state.avatarImpulse[p * 2 + 1] >>> 0);
+    h = fnv1aU32(h, state.avatarSnap[p]);
+  }
+  // Appended at SIM_VERSION 113: the mechs' own contact models.
+  for (let k = 0; k < state.avatarShape.length; k++) {
+    h = fnv1aU32(h, state.avatarShape[k] & 0xffff);
+  }
   // Appended at SIM_VERSION 40: which locks steer the hull (gone at 69, W2).
   // Appended at SIM_VERSION 43: the block-B magazines (replacing the x2 timer).
   for (let k = 0; k < state.powerAmmo.length; k++) h = fnv1aU32(h, state.powerAmmo[k]);
@@ -6202,6 +7110,9 @@ export function hash(state: SimState): number {
   // Warden match only from 75) and the results page's figures (stats.ts).
   for (let p = 0; p < MAX_PLAYERS; p++) {
     h = fnv1aU32(h, state.rivalHit[p]);
+    // Appended at SIM_VERSION 106: the count words.
+    h = fnv1aU32(h, state.unitCount[p * 2] >>> 0);
+    h = fnv1aU32(h, state.unitCount[p * 2 + 1] >>> 0);
     h = fnv1aU32(h, state.pointsScored[p]);
     h = fnv1aU32(h, state.firstDeath[p]);
     h = fnv1aU32(h, state.firstOutpost[p]);
@@ -6220,6 +7131,25 @@ export function hash(state: SimState): number {
       h = fnv1aU32(h, state.gunTarget[k]);
       h = fnv1aU32(h, state.gunSearch[k] >>> 0);
     }
+  }
+  // Appended at SIM_VERSION 106: every live aircraft's flight (units.ts AirState),
+  // the Sky Captain's too, in id order.
+  const air = state.air;
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id]) continue;
+    const a = ent.archetype[id];
+    if (a !== ARCHETYPE.GUARDIAN && a !== ARCHETYPE.FORTRESS && a !== ARCHETYPE.WARDEN) continue;
+    h = fnv1aU32(h, air.hx[id] >>> 0);
+    h = fnv1aU32(h, air.hy[id] >>> 0);
+    h = fnv1aU32(h, air.hz[id] >>> 0);
+    h = fnv1aU32(h, air.sx[id] >>> 0);
+    h = fnv1aU32(h, air.sy[id] >>> 0);
+    h = fnv1aU32(h, air.sz[id] >>> 0);
+    h = fnv1aU32(h, air.vx[id] >>> 0);
+    h = fnv1aU32(h, air.vy[id] >>> 0);
+    h = fnv1aU32(h, air.vz[id] >>> 0);
+    h = fnv1aU32(h, air.upY[id] >>> 0);
+    h = fnv1aU32(h, air.phase[id]);
   }
   // Appended at SIM_VERSION 85: the Dreadnought hull's walk, live Juggernauts on
   // a hull that walks only (bug-hunt's).
@@ -6273,6 +7203,83 @@ export function hash(state: SimState): number {
       for (let k = 0; k < 4; k++) h = fnv1aF32(h, state.roundLaunch[id * 4 + k]);
     }
   }
+  // Appended at SIM_VERSION 105: the sustained weapons' live trails and shells
+  // (sustain.ts); nothing while none is live.
+  h = hashSustain(state, h);
+  // Appended at SIM_VERSION 106, every map: each live turret gun's pitch.
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.TURRET) continue;
+    h = fnv1aU32(h, ent.pitch[id] & 0xffff);
+  }
+  // Appended at SIM_VERSION 107, every map: an arced round's owner point, what
+  // its range kill measures from (noteArcOwner).
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.PROJECTILE) continue;
+    if ((ent.ammoB[id] & ROUND_ARC) === 0) continue;
+    h = fnv1aF32(h, state.roundLaunch[id * 4]);
+    h = fnv1aF32(h, state.roundLaunch[id * 4 + 1]);
+  }
+  // Appended at SIM_VERSION 111, only on an arena with the graph: each node's
+  // occupancy and every live ground unit's route cursor, in id order (route.ts).
+  const lanes = state.map.laneGraph;
+  if (lanes !== undefined) {
+    const c = state.route;
+    for (let k = 0; k < c.occupancy.length; k++) h = fnv1aU32(h, c.occupancy[k]);
+    for (let id = 0; id < ent.high; id++) {
+      if (!ent.alive[id] || !isGroundUnit(ent.archetype[id])) continue;
+      const k3 = id * 3;
+      for (let a = 0; a < 3; a++) {
+        h = fnv1aU32(h, (c.legFrom[k3 + a] & 0xffff) | (c.leg[k3 + a] << 16));
+        h = fnv1aU32(h, (c.nextLeg[k3 + a] & 0xffff) | (c.corner[k3 + a] << 16));
+        h = fnv1aU32(h, c.heading[k3 + a] >>> 0);
+        h = fnv1aU32(h, c.nextDir[k3 + a] >>> 0);
+      }
+      h = fnv1aU32(h, c.travelled[id] >>> 0);
+      h = fnv1aU32(h, (c.legLength[id] & 0xffff) | (c.nextLegLength[id] << 16));
+      h = fnv1aU32(h, (c.cornerHalf[id] & 0xffff) | (c.cornerRecip[id] << 16));
+      h = fnv1aU32(h, (c.yawFrom[id] & 0xffff) | (c.yaw[id] << 16));
+      h = fnv1aU32(h, (c.yawTo[id] & 0xffff) | (c.yawTurn[id] << 16));
+      h = fnv1aU32(h, (c.pitchFrom[id] & 0xffff) | (c.pitch[id] << 16));
+      h = fnv1aU32(h, (c.pitchTo[id] & 0xffff) | (c.pitchTurn[id] << 16));
+      h = fnv1aU32(h, (c.speed[id] & 0xffff) | (c.hold[id] << 16));
+      h = fnv1aU32(h, c.velocity[id] >>> 0);
+      h = fnv1aU32(h, (c.next[id] & 0xffff) | (c.phase[id] << 16));
+    }
+  }
+  // Appended at SIM_VERSION 114: every live ground unit's bank and hull matrix
+  // angles on an arena with the graph (route.ts orient), every live aircraft's
+  // up row (units.ts AirState), each player's cockpit aim (orient.ts).
+  if (lanes !== undefined) {
+    const c = state.route;
+    for (let id = 0; id < ent.high; id++) {
+      if (!ent.alive[id] || !isGroundUnit(ent.archetype[id])) continue;
+      h = fnv1aU32(h, (c.bankPeak[id] & 0xffff) | (c.bank[id] << 16));
+      h = fnv1aU32(h, (c.hullYaw[id] & 0xffff) | (c.hullPitch[id] << 16));
+      h = fnv1aU32(h, c.hullBank[id] & 0xffff);
+    }
+  }
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id]) continue;
+    const a = ent.archetype[id];
+    if (a !== ARCHETYPE.GUARDIAN && a !== ARCHETYPE.FORTRESS && a !== ARCHETYPE.WARDEN) continue;
+    h = fnv1aU32(h, air.ux[id] >>> 0);
+    h = fnv1aU32(h, air.uy[id] >>> 0);
+    h = fnv1aU32(h, air.uz[id] >>> 0);
+  }
+  const aim = state.cockpitAim;
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    h = fnv1aU32(h, (aim.yaw[p] & 0xffff) | (aim.pitch[p] << 16));
+  }
+  // Appended at SIM_VERSION 116: every live aircraft's muzzle index and the
+  // Sky Captain's three (the original's +0x23).
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id]) continue;
+    const a = ent.archetype[id];
+    if (a !== ARCHETYPE.GUARDIAN && a !== ARCHETYPE.FORTRESS) continue;
+    h = fnv1aU32(h, state.shooterMuzzle[id]);
+  }
+  const cm = state.captain.muzzle;
+  h = fnv1aU32(h, cm[0] | (cm[1] << 8) | (cm[2] << 16));
   return h;
 }
 
@@ -6402,13 +7409,28 @@ export function writeLiftSnapshot(state: SimState, out: Float32Array): void {
  */
 export const GUN_SNAP_STRIDE = DREADNOUGHT_GUNS + 1;
 export const GUN_SNAP_HULL_FRAME = DREADNOUGHT_GUNS;
+/**
+ * A turret's row of the same snapshot (fcop-fidelity.md G12): at `id *
+ * GUN_SNAP_STRIDE + GUN_SNAP_TURRET_PITCH` its gun's elevation, radians,
+ * positive raising the muzzle (EntityStore.pitch, the original's sign negated),
+ * about the gun's own origin on its base's point 0. Written for live turrets.
+ */
+export const GUN_SNAP_TURRET_PITCH = 0;
 export const GUN_SNAPSHOT_LEN = MAX_ENTITIES * GUN_SNAP_STRIDE;
 
-/** Writes each live Juggernaut's gun yaws and hull frame into `out` (length GUN_SNAPSHOT_LEN). */
+/**
+ * Writes each live Juggernaut's gun yaws and hull frame, and each live turret's
+ * gun pitch, into `out` (length GUN_SNAPSHOT_LEN).
+ */
 export function writeGunSnapshot(state: SimState, out: Float32Array): void {
   const ent = state.ent;
   for (let id = 0; id < ent.high; id++) {
-    if (!ent.alive[id] || ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) continue;
+    if (!ent.alive[id]) continue;
+    if (ent.archetype[id] === ARCHETYPE.TURRET) {
+      out[id * GUN_SNAP_STRIDE + GUN_SNAP_TURRET_PITCH] = -ent.pitch[id] * ANGLE_UNIT;
+      continue;
+    }
+    if (ent.archetype[id] !== ARCHETYPE.JUGGERNAUT) continue;
     const o = id * GUN_SNAP_STRIDE;
     for (let g = 0; g < DREADNOUGHT_GUNS; g++) {
       out[o + g] = gunYawRadians(state.gunYaw[id * DREADNOUGHT_GUNS + g]);
@@ -6441,7 +7463,8 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     out[o + MATCH_SLOT_POINTS] = state.points[slot];
     out[o + MATCH_SLOT_AVATAR_ID] = a;
     const maxHp = slot === state.wardenPlayer ? captainMaxHp(state) : avatarMaxHp(state, slot);
-    out[o + MATCH_SLOT_HP_FRAC] = a >= 0 ? ent.hp[a] / maxHp : 0;
+    // A crashing captain is below zero until it lands: its gauge reads empty.
+    out[o + MATCH_SLOT_HP_FRAC] = a >= 0 && ent.hp[a] > 0 ? ent.hp[a] / maxHp : 0;
     // The magazine each slot fires from: block B while powered, else block A.
     const pk = slot * 3;
     out[o + MATCH_SLOT_AMMO_HEAVY] =
@@ -6539,7 +7562,8 @@ export function writeSnapshot(state: SimState, out: Float32Array): number {
     out[o + 5] = ent.height[id];
     out[o + 6] = ent.yaw[id];
     out[o + 7] = ent.animState[id];
-    out[o + 8] = ent.hp[id] / maxHpOf(state, id);
+    // A crashing aircraft is below zero until it lands (A19): read empty.
+    out[o + 8] = ent.hp[id] > 0 ? ent.hp[id] / maxHpOf(state, id) : 0;
     // PROJECTILE: payload kind. TURRET: DEFENSE / DUMMY / CAPTURABLE so the
     // renderer can pick Defense vs Standard meshes. Everything else: aux.
     out[o + 9] =

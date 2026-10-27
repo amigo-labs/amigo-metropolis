@@ -14,10 +14,20 @@
 // neither pitches them nor plays a recoil track on them (RE pa_models.json
 // `guns[].by_side.*.mount_flags`, `models.*.anim`).
 //
-// Renderer rule 1: lerpGunYaws runs per Dreadnought per frame and allocates
-// nothing.
+// A turret's gun does pitch (fcop-fidelity.md G12): every PA turret record sets
+// TURRET_DF_PITCH, and the sim models it since SIM_VERSION 106. The same
+// snapshot carries the pitch on a turret's row (GUN_SNAP_TURRET_PITCH), and
+// lerpTurretPitch reads it between the two ticks.
+//
+// Renderer rule 1: lerpGunYaws and lerpTurretPitch run per Dreadnought or
+// turret per frame and allocate nothing.
 
-import { DREADNOUGHT_GUNS, GUN_SNAP_HULL_FRAME, GUN_SNAP_STRIDE } from "@metropolis/sim";
+import {
+  DREADNOUGHT_GUNS,
+  GUN_SNAP_HULL_FRAME,
+  GUN_SNAP_STRIDE,
+  GUN_SNAP_TURRET_PITCH,
+} from "@metropolis/sim";
 
 const TAU = Math.PI * 2;
 
@@ -54,4 +64,21 @@ export function lerpGunYaws(
   }
   out[GUN_SNAP_HULL_FRAME] = curr[o + GUN_SNAP_HULL_FRAME];
   return out;
+}
+
+/**
+ * Turret `id`'s gun elevation, radians, positive raising the muzzle, `alpha` of
+ * the way from the previous tick's gun snapshot to the current one (the pitch
+ * stays within an eighth of a turn, so no fold); the current tick's without a
+ * previous (`hasPrev` false: the turret is new this tick).
+ */
+export function lerpTurretPitch(
+  prev: Float32Array,
+  curr: Float32Array,
+  id: number,
+  alpha: number,
+  hasPrev: boolean,
+): number {
+  const o = id * GUN_SNAP_STRIDE + GUN_SNAP_TURRET_PITCH;
+  return hasPrev ? prev[o] + (curr[o] - prev[o]) * alpha : curr[o];
 }

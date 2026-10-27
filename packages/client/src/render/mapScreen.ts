@@ -2,8 +2,9 @@
 // 1566-1650, pause_map.c, mission_frame.c 1661-1691): the view's pause byte
 // flipped, the saved camera set to the X1's position, the terrain drawn from
 // straight above in a 32 x 24-sample window about it (20 px a sample at
-// 640 x 480), panned by the movement bits and re-centred by Action, kept inside
-// the world.
+// 640 x 480), panned by the movement bits and re-centred by Action, its centre
+// kept inside the original's terrain grid less its margin, so the window
+// overhangs the grid by at most 2 m.
 //
 // The state and its rules; main.ts renders the top-down window and
 // render/hud/mapOverlay.ts the arrows, rings and the radar's 54-cell overview.
@@ -20,6 +21,7 @@ import {
   worldExtent,
 } from "@metropolis/sim";
 import { HUD } from "./fcopPresentation.generated";
+import { VIEW_TERRAIN } from "./viewTerrain.generated";
 
 /** World units to a metre (a terrain sample). */
 const WU = 8192;
@@ -67,8 +69,8 @@ function axisRate(rate: number, plus: boolean, minus: boolean, ticks: number): n
  * scroll toward +x / -x (screen right / left), Move Backward / Forward toward
  * +y / -y (screen down / up), at `(dt x rate) << 2` world units a frame (up to
  * 2048 a tick, 75 m/s); Action re-centres on the X1. The window, `halfX` x
- * `halfY` metres about its centre, then stays inside the world `bounds`
- * [minX, maxX, minY, maxY] (world_clamp_map_centre).
+ * `halfY` metres about its centre, then overhangs the world `bounds`
+ * [minX, maxX, minY, maxY] by at most 2 m (world_clamp_map_centre).
  */
 export function panMapScreen(
   m: MapScreen,
@@ -98,50 +100,42 @@ export function panMapScreen(
   m.cy = clampAxis(m.cy, halfY, bounds[2], bounds[3]);
 }
 
+/** `WORLD_MAP_WINDOW_OVERHANG` 0x4000: how far the window may overhang the world, m. */
+export const MAP_OVERHANG_M = 0x4000 / WU;
+
+/**
+ * `world_clamp_map_centre` (0x00452710) on one axis: the centre kept `half`
+ * less the overhang inside [lo, hi]. The low bound is tested first and the
+ * high one only when the low passed, so where the margin exceeds half the
+ * world the centre ends on the low bound or, above the high one, on it.
+ */
 function clampAxis(c: number, half: number, lo: number, hi: number): number {
-  if (2 * half >= hi - lo) return (lo + hi) / 2;
-  return c < lo + half ? lo + half : c > hi - half ? hi - half : c;
+  const margin = half - MAP_OVERHANG_M;
+  if (c < lo + margin) return lo + margin;
+  if (c > hi - margin) return hi - margin;
+  return c;
 }
 
 /**
- * The world the window stays inside. The original clamps to its terrain grid
- * less a margin (grid.c world_clamp_map_centre); Metropolis' maps pad that grid
- * unevenly (CLAUDE.md, FCOP maps rule 3), so the bound is the arena's content —
- * spawns, bases, turret and outpost spots, pickups, lanes — and half a window's
- * width beyond it. Writes [minX, maxX, minY, maxY]. Not in the frame loop.
+ * The world the window stays inside: the original's terrain grid less its
+ * margin (`cptc_load` 0x00451510's bounds; gen:viewterrain `world`, in the
+ * sim's frame). A map the original has no grid for (the test maps) keeps the
+ * whole of its own. Writes [minX, maxX, minY, maxY]. Not in the frame loop.
  */
 export function mapBounds(map: MapData, out: Float64Array): void {
-  let minX = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  const add = (x: number, y: number): void => {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  };
-  for (const p of map.spawns) add(p.x, p.y);
-  for (const b of map.bases) {
-    add(b.gate.x, b.gate.y);
-    add(b.core.x, b.core.y);
+  const world = VIEW_TERRAIN[map.id]?.world;
+  if (world) {
+    out[0] = world[0];
+    out[1] = world[1];
+    out[2] = world[2];
+    out[3] = world[3];
+    return;
   }
-  for (const p of map.turretSpots) add(p.x, p.y);
-  for (const p of map.outpostSpots) add(p.x, p.y);
-  for (const p of map.pickups) add(p.x, p.y);
-  for (const lane of map.lanes) for (const p of lane) add(p.x, p.y);
   const extent = worldExtent(map);
-  if (!Number.isFinite(minX)) {
-    minX = 0;
-    minY = 0;
-    maxX = extent;
-    maxY = extent;
-  }
-  const pad = MAP_SAMPLES_X / 2;
-  out[0] = Math.max(0, minX - pad);
-  out[1] = Math.min(extent, maxX + pad);
-  out[2] = Math.max(0, minY - pad);
-  out[3] = Math.min(extent, maxY + pad);
+  out[0] = 0;
+  out[1] = extent;
+  out[2] = 0;
+  out[3] = extent;
 }
 
 /**

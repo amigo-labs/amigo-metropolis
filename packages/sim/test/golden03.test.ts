@@ -61,7 +61,35 @@ import { createSim, step } from "../src/sim";
 // had written the bare lattice back over them), so player 0's tanks drive the
 // original's kerbed streets through to the gate and breach at 77.2 s; the mechs
 // go down 4 times.
-const BREACH_TICK_PIN = 2316;
+// 2217 at SIM_VERSION 106: the turrets pitch, fire from their gun's muzzle and
+// test their arc in three dimensions, and the Dreadnought's level guns refuse
+// what lies more than 22.5° below them (fcop-fidelity.md G12, I6); the fights
+// play differently and player 0's tank breaches at 79.8 s.
+// 2363 at SIM_VERSION 107: a capture is asked only of a pair the broad phase's
+// 4 m cells offer (fcop-fidelity.md R12), so the script's first capture comes
+// later (the replay diverges at tick 821) and player 0's tanks breach at 78.8 s.
+// 2309 with both (77.0 s).
+// 2316 -> none at SIM_VERSION 108: a wall stops a mech's move with the
+// original's push back off it and turns its facing along it, and the hover
+// rides its slopes on the ground, so the script's walks and the fight play out
+// otherwise: the mechs go down 11 times and all ten tanks die short of the gates.
+// 2395 on top of SIM_VERSION 105-107 (79.8 s): player 0's tank breaches again,
+// the mechs go down 4 times.
+// 2921 at SIM_VERSION 111: the tanks walk the original's route cursor (a leg
+// ahead, the corners cut, the legs' approximate lengths; fcop-fidelity.md U1);
+// player 0's tank breaches at 97.4 s, the mechs go down 5 times.
+// 2265 at SIM_VERSION 112: a round meets a body by the original's pair test
+// (its own model's hit boxes against the body's, the mech's legs and cockpit by
+// frame) and the reference points stand at their boxes' centres; player 0's
+// tank breaches at 75.5 s, the mechs go down 3 times.
+// 2632 at SIM_VERSION 113: the actors a mech touches push it off (their hit
+// boxes against its own contact model) and the tanks and the other mech hurt
+// it a step, so the fight plays out otherwise: the mechs go down 4 times and
+// player 0's tank breaches at 87.7 s.
+// 2273 at SIM_VERSION 114: the tanks stand at their cursor's height and turn by
+// their hull's matrix, the cockpits by their aim, so rounds meet them otherwise:
+// the mechs go down 3 times and player 0's tank breaches at 75.8 s.
+const BREACH_TICK_PIN = 2273;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {
@@ -111,8 +139,8 @@ describe("golden-03-match beats", () => {
     expect(respawns[0]).toBeGreaterThanOrEqual(1);
     expect(respawns[1]).toBeGreaterThanOrEqual(1);
     expect(runnerDeaths).toBeGreaterThanOrEqual(3);
-    // The breach as recorded: player 0's tank at 77.2 s since SIM_VERSION 94
-    // (none from 84; the same side's at 82.8 s from 79).
+    // The breach as recorded: player 0's tank at 79.8 s since SIM_VERSION 106
+    // (77.2 s from 94; none from 84; the same side's at 82.8 s from 79).
     expect(breaches).toBe(BREACH_TICK_PIN < 0 ? 0 : 1);
     expect(breachTick).toBe(BREACH_TICK_PIN);
     expect(breachTeam).toBe(BREACH_TICK_PIN < 0 ? -1 : BREACH_TEAM_PIN);

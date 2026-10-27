@@ -547,7 +547,7 @@ slot's power-up pickup. HARD ammo shown; ×1.25 on NORMAL.
 | 0x13 | Hyper Velocity Rocket | lead-aimed missile (straight without lock), 30 dmg, **burst of 4 on 4 consecutive frames, then 1.13 s** (round gap −37 units carries into the 450-unit burst gap), 120 rds, 2.5 → 19.9 m/s (23 m/s²), 16 m | burst of 8, spinning, then 1.08 s, 80 |
 | 0x14 | Fusion Torpedo | homing torpedo, 100 dmg, 1 m blast with **damage falloff over the distance flown**, 1 per 1.0 s, 40, 1.5 → 11.7 m/s (13.7 m/s²), 16 m | 150 dmg, 2 m blast, 10 |
 | 0x15 | K-9 Drone | ground-hugging homing missile (health 2×dmg), 150 dmg, 1 per 3.0 s, 25, 0.6 → 4.7 m/s, 16 m | burst of 3, 200 dmg, 4.0 s, 18 |
-| 0x20 | Mortar Launcher | arced shell, 200 dmg, 3.2 m blast, 1 per 2.0 s, 25, launch 7.6 m/s, g = 6.0 m/s², max reach about 9.7 m | bursts into 4 at apex, 100 dmg each, 4 m, 1/1.0 s, 10 |
+| 0x20 | Mortar Launcher | arced shell, 200 dmg, 3.2 m blast, 1 per 2.0 s, 25, launch 7.6 m/s, g = 6.0 m/s², max reach about 9.7 m | bursts into 4 at apex (one per quadrant, up to 2 m/s off the shell; the shell flies on and goes off too: `cact_round_advance` 0x00423e40), 100 dmg each, 4 m, 1/1.0 s, 10 |
 | 0x21 | Plasma Flare | arced, kept round (press-to-fire, 2nd press detonates), 250 dmg, 6 m blast, 1 per 2.0 s, 30, 7.6 m/s, g = 5.2, reach about 11.2 m | bursts into 4, 200 dmg, 6 m, 1/3.0 s, 15 |
 | 0x22 | Pop-Up Mines | dropped mine, 600 dmg, **5.6 m blast**, 1 per 1.0 s, 30. Falls from the muzzle under a fixed 8 m/s² (the spawner's, not the record's), bounces, and explodes the tick it comes to rest (RE M3-OP). A proximity trigger of 2 m + target half-extent springs it first: flung down, it pops up and explodes 1.0 s later. Lifetime field 5.0 s, not reached on open ground | 1000 dmg, 8 m blast, 15 |
 | 0x23 | Shockwave Generator | self-centred sustained effect, 300 dmg, 6 m, 1 per 3.0 s, 20 | 300 dmg, 8 m, 1/1.0 s, 10 |
@@ -633,8 +633,10 @@ not done here. Reports: `scratchpad/diffexec-*.json`.
 ## 9. Could not establish
 
 1. ~~How the sustained weapons apply damage over time~~ — answered by RE M3-OR
-   (fcop-fidelity.md W1): the flame's trail nodes (one every 2 frames at 30 fps,
-   each hurting each body it reaches once), the beam once per body per shot along
+   (fcop-fidelity.md W1, modelled in SIM_VERSION 105, `sim/src/sustain.ts`): the
+   flame's trail nodes (one every 2 frames at 30 fps, each hurting each body it
+   reaches once -- the lock twice, asked as the target and again in the registry
+   walk, 0x0044b2fc / 0x0044b3b1), the beam once per body per shot along
    its segment, the shockwave an expanding shell blasting every fourth frame with
    falloff from its current outer radius; the Riot Shield's is W5's.
 2. ~~**Mine lifetime semantics.**~~ **Settled (RE M3-OP):** nothing suppresses

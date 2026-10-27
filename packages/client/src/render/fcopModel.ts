@@ -56,6 +56,21 @@
 // a morph's frame through its own normals. A model without the attribute
 // keeps the loader's lighting: lit, or unlit for the weapons.
 //
+// The damaged arms (fcop-fidelity.md G13). `cact_model_submit` (0x004280a0)
+// hands the walk the actor's `CACT_FLAG_DAMAGED` (bit 25, 0x004280d6), and with
+// it set `cact_model_shade_face` takes its other table (0x00428ff0): every lit
+// or plain colour goes out as a colour (mode 0x30 / 0x50, r, g, b doubled), red
+// whole and green and blue halved -- a grey `g` as (g, g >> 1, g >> 1)
+// (`put_red`), a colour with its g and b `shr 1`, an add face's tint the same.
+// The flag is set by any damage that lands (0x0041a7bf, `cact_base_op9`
+// 0x0041a73c, the player's and its partner's at once 0x00446649..) and on a
+// block-B pickup while the frame clock's bit 7 is set (0x0041e590); the
+// registry pass clears it on every actor it keeps at the top of the next frame
+// (0x0043b520, run before the actors tick, 0x00407473), so a hit draws red in
+// the one frame after the tick it lands in. A material made with `hit` reads it
+// per instance off HIT_ATTRIBUTE (render/damaged.ts writes it); every geometry
+// such a material draws carries the attribute, zero where nothing is hit.
+//
 // Init-time only: nothing here runs in the frame loop.
 
 import * as THREE from "three";
@@ -162,6 +177,12 @@ export async function mergeFcopModel(gltf: GLTF): Promise<FcopModel> {
 export const LIGHT_ATTRIBUTE = "_fcop_light";
 
 /**
+ * The per-instance `CACT_FLAG_DAMAGED`, 0 or 1, that a material made with
+ * `hit` reads (render/damaged.ts): the damaged table 0x00428ff0 while it is 1.
+ */
+export const HIT_ATTRIBUTE = "instanceFcopHit";
+
+/**
  * The original's one light, the three 16.16 words at RE 0x0048b7a8 (0x6fba,
  * 0xdf75, 0x37dd), which are the game's (x, y, z): `draw_light_prepare`
  * (0x00426eb0) puts them through the camera and the model draw back through
@@ -184,6 +205,43 @@ export const FCOP_LIGHT: readonly [number, number, number] = [
 export function fcopShadeByte(byte: number, cos: number): number {
   if (cos < 0) return 0x20;
   return Math.min(Math.floor((cos * byte) / 4096) + 0x20, 0xff);
+}
+
+/**
+ * The display factor of a corner of an instance whose `CACT_FLAG_DAMAGED` is
+ * set: `cact_model_shade_face`'s other table (0x00428ff0). Every arm stores a
+ * colour (mode 0x30, or 0x50 per corner for 4 and 5), doubled per channel by
+ * THRASH (0x00456a49): grey `g` as (g, g >> 1, g >> 1) (`put_red`, 0x00428cc1,
+ * 0x00428cf2, 0x00428d57), a colour with its green and blue `shr 1`
+ * (0x00428e10; a lit colour's blue is already 0). The mirror of the GLSL.
+ */
+export function fcopHitFactor(
+  light: readonly number[],
+  cos: number,
+  out: [number, number, number],
+): [number, number, number] {
+  const [material, b1, b2, b3] = light;
+  const doubled = (c: number) => Math.min(2 * c, 0xff) / 0xff;
+  let r = b1;
+  let g = b2 >> 1;
+  let b = b3 >> 1;
+  if (material === 0 || material === 2 || material === 4) {
+    r = material === 0 ? b1 : fcopShadeByte(b1, cos);
+    g = r >> 1;
+    b = r >> 1;
+  } else if (material === 3 || material === 5) {
+    r = fcopShadeByte(b1, cos);
+    g = fcopShadeByte(b2, cos) >> 1;
+    b = 0;
+  } else if (material !== 1 && material !== 6) {
+    // Material 7: `ja` past the table (0x00428cb4), the record left as it came.
+    out[0] = out[1] = out[2] = 1;
+    return out;
+  }
+  out[0] = doubled(r);
+  out[1] = doubled(g);
+  out[2] = doubled(b);
+  return out;
 }
 
 /**
@@ -226,6 +284,9 @@ export function fcopLightFactor(
 }
 
 const LIGHT_VERTEX_DECL = `attribute vec4 ${LIGHT_ATTRIBUTE};
+#ifdef FCOP_HIT
+attribute float ${HIT_ATTRIBUTE};
+#endif
 varying vec3 vFcopShade;
 const vec3 FCOP_LIGHT = vec3( ${FCOP_LIGHT.map((c) => c.toFixed(10)).join(", ")} );
 float fcopShadeByte( float c, float cosine ) {
@@ -264,6 +325,24 @@ const LIGHT_VERTEX = `vec3 fcopNormal = vec3( normal );
 	} else {
 		vFcopShade = vec3( 1.0 );
 	}
+#ifdef FCOP_HIT
+	// CACT_FLAG_DAMAGED: the table at 0x00428ff0, every arm a colour, doubled.
+	if ( ${HIT_ATTRIBUTE} > 0.5 && fcopMaterial < 6.5 ) {
+		float fcopR = fcopBytes.x;
+		float fcopG = floor( fcopBytes.y / 2.0 );
+		float fcopB = floor( fcopBytes.z / 2.0 );
+		if ( fcopMaterial < 0.5 || ( fcopMaterial > 1.5 && fcopMaterial < 2.5 ) || ( fcopMaterial > 3.5 && fcopMaterial < 4.5 ) ) {
+			fcopR = fcopMaterial < 0.5 ? fcopBytes.x : fcopShadeByte( fcopBytes.x, fcopCos );
+			fcopG = floor( fcopR / 2.0 );
+			fcopB = fcopG;
+		} else if ( ( fcopMaterial > 2.5 && fcopMaterial < 3.5 ) || ( fcopMaterial > 4.5 && fcopMaterial < 5.5 ) ) {
+			fcopR = fcopShadeByte( fcopBytes.x, fcopCos );
+			fcopG = floor( fcopShadeByte( fcopBytes.y, fcopCos ) / 2.0 );
+			fcopB = 0.0;
+		}
+		vFcopShade = vec3( fcopDoubled( fcopR ), fcopDoubled( fcopG ), fcopDoubled( fcopB ) );
+	}
+#endif
 #include <begin_vertex>`;
 
 const LIGHT_FRAGMENT_DECL = `varying vec3 vFcopShade;
@@ -296,6 +375,11 @@ export function fcopLightPatch(material: THREE.Material): void {
 /** How a loader draws the faces it does not blend: lit, or unlit (the weapons). */
 export interface FaceMaterialOptions {
   readonly unlit?: boolean;
+  /**
+   * The faces read the instance's `CACT_FLAG_DAMAGED` off HIT_ATTRIBUTE (the
+   * damaged arms, 0x00428ff0): every geometry the materials draw must carry it.
+   */
+  readonly hit?: boolean;
   /** Applied to every material made (the team offset: render/teamUv.ts). */
   readonly patch?: (material: THREE.Material) => void;
 }
@@ -325,9 +409,11 @@ export function faceMaterials(
   // face, whose colour the light attribute holds.
   const lit = geometry.hasAttribute(LIGHT_ATTRIBUTE);
   const vertexColors = !lit && geometry.hasAttribute("color");
+  const hit = options.hit === true;
   const solid = (map: THREE.Texture | null): THREE.Material => {
     if (!lit) return solidMaterial(map, vertexColors, options.unlit === true);
     const m = new THREE.MeshBasicMaterial({ map, toneMapped: options.unlit !== true });
+    if (hit) defineHit(m);
     fcopLightPatch(m);
     return m;
   };
@@ -357,7 +443,7 @@ export function faceMaterials(
       halfBlendPatch(blend);
       geometry.addGroup(g.start, g.count, add(blend, "half-blend"));
     } else {
-      geometry.addGroup(g.start, g.count, add(addMaterial(g.map, g.tint), "add"));
+      geometry.addGroup(g.start, g.count, add(addMaterial(g.map, g.tint, hit), "add"));
     }
   }
   if (materials.length === 1 && model.groups.length === 1) {
@@ -397,6 +483,16 @@ export function chainPatch(
   material.customProgramCacheKey = () => programKey;
 }
 
+/**
+ * FCOP_HIT on a built-in material: three compiles a material's `defines` into
+ * every program and keys the program by them (the typings list it on
+ * ShaderMaterial only).
+ */
+function defineHit(material: THREE.Material): void {
+  const m = material as THREE.Material & { defines?: Record<string, string> };
+  m.defines = { ...(m.defines ?? {}), FCOP_HIT: "" };
+}
+
 /** The bit-15 pass of a half face: the solid texels are the other pass's. */
 function halfBlendPatch(material: THREE.Material): void {
   chainPatch(material, "fcopHalf", (shader) => {
@@ -416,7 +512,19 @@ export function addTint(tint: readonly number[], out: THREE.Color): THREE.Color 
   return out.setRGB((tint[0] * 2) / 255, (tint[1] * 2) / 255, (tint[2] * 2) / 255);
 }
 
-function addMaterial(map: THREE.Texture | null, tint: readonly number[] | null): THREE.Material {
+/**
+ * An add face's tint on a damaged instance (0x00428dfd): green and blue `shr
+ * 1`, doubled as ever.
+ */
+export function addHitTint(tint: readonly number[], out: THREE.Color): THREE.Color {
+  return addTint([tint[0], tint[1] >> 1, tint[2] >> 1], out);
+}
+
+function addMaterial(
+  map: THREE.Texture | null,
+  tint: readonly number[] | null,
+  hit = false,
+): THREE.Material {
   const material = new THREE.MeshBasicMaterial({
     map,
     toneMapped: false,
@@ -433,15 +541,33 @@ function addMaterial(map: THREE.Texture | null, tint: readonly number[] | null):
   material.blendEquationAlpha = THREE.AddEquation;
   material.blendSrcAlpha = THREE.ZeroFactor;
   material.blendDstAlpha = THREE.OneFactor;
+  const hitTint = hit ? addHitTint(tint ?? [0x80, 0x80, 0x80], new THREE.Color()) : null;
+  if (hit) defineHit(material);
   chainPatch(material, "fcopAdd", (shader) => {
+    if (hitTint) {
+      shader.uniforms.fcopHitTint = { value: hitTint };
+      shader.vertexShader = shader.vertexShader.replace(
+        "void main() {",
+        `attribute float ${HIT_ATTRIBUTE};\nvarying float vFcopHit;\nvoid main() {\n\tvFcopHit = ${HIT_ATTRIBUTE};`,
+      );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "void main() {",
+        "uniform vec3 fcopHitTint;\nvarying float vFcopHit;\nvoid main() {",
+      );
+    }
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <map_fragment>",
-        `#ifdef USE_MAP
-	vec4 fcopTexel = texture2D( map, vMapUv );
-	diffuseColor.rgb = sRGBTransferEOTF( vec4( sRGBTransferOETF( fcopTexel ).rgb * diffuse, 1.0 ) ).rgb;
+        `#ifdef FCOP_HIT
+	vec3 fcopTint = vFcopHit > 0.5 ? fcopHitTint : diffuse;
 #else
-	diffuseColor.rgb = sRGBTransferEOTF( vec4( diffuse, 1.0 ) ).rgb;
+	vec3 fcopTint = diffuse;
+#endif
+#ifdef USE_MAP
+	vec4 fcopTexel = texture2D( map, vMapUv );
+	diffuseColor.rgb = sRGBTransferEOTF( vec4( sRGBTransferOETF( fcopTexel ).rgb * fcopTint, 1.0 ) ).rgb;
+#else
+	diffuseColor.rgb = sRGBTransferEOTF( vec4( fcopTint, 1.0 ) ).rgb;
 #endif
 	diffuseColor.a = 1.0;`,
       )

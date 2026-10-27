@@ -52,6 +52,10 @@ function parked(state: SimState, yaw = 0, x = X, y = Y): { id: number; park: () 
     state.ent.posX[id] = x;
     state.ent.posY[id] = y;
     state.ent.yaw[id] = yaw;
+    // Its hull's matrix (route.ts orient), level on that yaw.
+    state.route.hullYaw[id] = Math.round(yaw / UNIT) & 0xfff;
+    state.route.hullPitch[id] = 0;
+    state.route.hullBank[id] = 0;
     state.ent.velX[id] = 0;
     state.ent.velY[id] = 0;
     state.ent.height[id] = sampleHeight(state.map, x, y);

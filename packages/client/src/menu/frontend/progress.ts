@@ -6,7 +6,7 @@
 // twenty named slots (save_dialog.c): a save copies the config into the
 // selected slot under the typed name, a load copies a slot's config back.
 
-import { type FeConfig, normalizeConfig, recordPaWin, rowOfMap } from "./model";
+import { BUG_HUNT_ROW, type FeConfig, normalizeConfig, recordPaWin, rowOfMap } from "./model";
 
 const CONFIG_KEY = "metropolis.frontend.v1";
 const SAVES_KEY = "metropolis.saves.v1";
@@ -128,4 +128,15 @@ export function recordSoloWin(mapId: string, level: number): "none" | "level" | 
   if (!recordPaWin(config, row, level - 1)) return "none";
   storeConfig(config);
   return before >= 9 ? "finished" : "level";
+}
+
+/**
+ * Whether "another round" after a won round that finished `mapId` leaves for
+ * the front end instead (frame_step_game 0x00409796..0x004097b2): after the
+ * finished map's movie, loader state 0xe -- the results page's another round
+ * -- on map pick 5, the sixth map, becomes 0xb and the step answers 1, so
+ * WinMain (0x0045af8a) runs the front end. Pick 5 is Bug Hunt.
+ */
+export function finishedMapEndsSession(mapId: string): boolean {
+  return rowOfMap(mapId) === BUG_HUNT_ROW;
 }

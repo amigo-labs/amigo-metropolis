@@ -17,6 +17,7 @@ import {
   ORIGINAL_CAPTURE_RANGE,
   OUTPOST_COST_MULTIPLIER,
   OUTPOST_TURRET_RESPAWN_TICKS,
+  PAIR_CELL,
   PICKUP_HEALTH,
   PICKUP_INVIS,
   PICKUP_INVIS_TICKS,
@@ -199,18 +200,25 @@ describe("the Juggernaut is the original Dreadnought", () => {
     const ent = state.ent;
     const j = map.bases[0].juggernaut;
     if (!j) throw new Error("la-cantina must carry its Dreadnought");
-    const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, j.x, j.y);
-    // Put the enemy avatar 5 m off, in the open by the Dreadnought's spawn.
+    // Put the enemy avatar 4 m ahead, in the open by the Dreadnought's spawn: far
+    // enough that the guns, which never pitch, see it inside their 22.5° arc
+    // (the arc is tested in three dimensions, discharge_arc_blocks). It lands
+    // there first: a round meets the mech's boxes, not a flat circle, since
+    // SIM_VERSION 112, and a round aimed at a falling mech flies over it.
     const foe = state.avatarId[1];
-    ent.posX[foe] = ent.posX[id] + 0.5;
-    ent.posY[foe] = ent.posY[id] + 0.5;
     ent.hp[foe] = 100000;
+    for (let t = 0; t < 30; t++) {
+      ent.posX[foe] = j.x + 4;
+      ent.posY[foe] = j.y;
+      step(state, idle);
+    }
+    const id = spawnUnit(state, ARCHETYPE.JUGGERNAUT, 0, j.x, j.y);
     let shots = 0;
     let damage = 0;
     // 601 engine units at 10 a tick, the reload clamping the leftover: 61 ticks.
     for (let t = 0; t < 61; t++) {
-      ent.posX[foe] = ent.posX[id] + 0.5;
-      ent.posY[foe] = ent.posY[id] + 0.5;
+      ent.posX[foe] = ent.posX[id] + 4;
+      ent.posY[foe] = ent.posY[id];
       step(state, idle);
       for (let i = 0; i < state.events.count; i++) {
         const o = i * EVENT_STRIDE;
@@ -233,6 +241,9 @@ describe("the gate is the win condition (fcop-fidelity.md R1)", () => {
     const id = spawnUnit(state, archetype, team, x, y);
     state.ent.posX[id] = x;
     state.ent.posY[id] = y;
+    // Halted where it stands: a route follower placed off its road would walk
+    // its first leg from the node unit under it (route.ts startRoute).
+    state.ent.timerA[id] = -1;
     step(state, idle);
     return state;
   }
@@ -504,6 +515,42 @@ describe("capture on the imported arenas (fcop-fidelity.md R12)", () => {
     pressAt(reach - 0.05);
     expect(ent.ownerId[tid]).toBe(0);
   });
+
+  it("asks only a pair the broad phase offers: Hk's 6.15 m is clipped by the 4 m cells", () => {
+    // `turret_op10` is operation 0x0a, asked only by the pair walk, which
+    // pairs a 4 m cell with its eight neighbours (`objects_pick_targets`
+    // 0x0044fe40). 6 m from the turret, inside Hk's 5.6 m + the mech's radius,
+    // the mech is two cells off on one side of the turret's cell line and one
+    // on the other.
+    const hk = getMapById("hollywood-keys");
+    const cell = PAIR_CELL;
+    const tryFrom = (dx: number): boolean => {
+      const state = createSim(hk, 1);
+      const ent = state.ent;
+      const tid = state.neutralTurretEntity[0];
+      const a = state.avatarId[0];
+      const press = createTickInputs();
+      for (const buttons of [0, BTN_ACTION]) {
+        ent.posX[a] = ent.posX[tid] + dx;
+        ent.posY[a] = ent.posY[tid];
+        ent.height[a] = ent.height[tid];
+        press.players[0].buttons = buttons;
+        step(state, press);
+      }
+      return ent.ownerId[tid] === 0;
+    };
+    const state = createSim(hk, 1);
+    const tx = state.ent.posX[state.neutralTurretEntity[0]];
+    const frac = tx - Math.floor(tx / cell) * cell;
+    expect(Math.abs(frac - 2)).toBeGreaterThan(0.01);
+    // West the mech is two cells off when the turret stands less than 2 m into
+    // its cell; east, when it stands more.
+    expect(tryFrom(-6)).toBe(frac >= 2);
+    expect(tryFrom(6)).toBe(frac <= 2);
+    // Inside one cell's reach both ways capture.
+    expect(tryFrom(-3.9)).toBe(true);
+    expect(tryFrom(3.9)).toBe(true);
+  });
 });
 
 describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
@@ -553,11 +600,14 @@ describe("outposts on the imported arenas (fcop-fidelity.md R14)", () => {
     const reach = vb.outposts[0].zone + ARCHETYPE_RADIUS[ARCHETYPE.AVATAR];
     state.points[0] = 40;
     const a = state.avatarId[0];
-    for (let t = 0; t < 10; t++) {
+    // Until the spawn's hard landing has played out: the legs back on frame 0,
+    // where the mech's radius is ARCHETYPE_RADIUS (the crouched legs' is less).
+    for (let t = 0; t < 30; t++) {
       ent.posX[a] = spot.x;
       ent.posY[a] = spot.y;
       step(state, idle);
     }
+    expect(state.walker.legs.frame[0]).toBe(0);
     expect(state.outpostOwner[0]).toBe(-1); // standing in it is not a claim
     pressAt(state, 0, spot.x + reach + 0.05, spot.y);
     expect(state.outpostOwner[0]).toBe(-1); // just outside the zone

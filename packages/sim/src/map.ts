@@ -13,21 +13,26 @@ import urbanJungleJson from "../maps/urban-jungle.json";
 import veniceBeachJson from "../maps/venice-beach.json";
 import { ARCHETYPE } from "./archetypes";
 import {
+  type AircraftFlight,
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_RADIUS,
   DREADNOUGHT_GUN_TURN,
   DREADNOUGHT_GUNS,
   DREADNOUGHT_MOUNTS,
   MUZZLE_HEIGHT,
+  MUZZLE_OFFSET,
   NEUTRAL_TURRET_RADIUS,
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
+  ORIGINAL_FORTRESS_FLIGHT,
+  ORIGINAL_JET_FLIGHT,
   ORIGINAL_JET_QUEUE_PERIOD,
   ORIGINAL_PICKUP_HALF_H,
   ORIGINAL_PICKUP_HALF_L,
   ORIGINAL_PICKUP_HALF_W,
   ORIGINAL_PICKUP_LIFT,
+  ORIGINAL_SKY_FLIGHT,
   ORIGINAL_TANK_QUEUE_PERIOD,
   ORIGINAL_TURRET_HP,
   ORIGINAL_UNIT_PROFILES,
@@ -127,6 +132,18 @@ export interface MapWeapon {
   readonly hold: number;
   /** 1: prefers the higher target priority (Dreadnought > tank > X1 > other). */
   readonly priority: number;
+  /**
+   * 1: ALTERNATE (the record's shooter bitfield 0x20): the muzzle index +0x23
+   * flips between the body's model points 0 and 1 every round
+   * (`cact_shooter_step` 0x0044e673): the Flying Fortress's (0x220).
+   */
+  readonly alternate: number;
+  /**
+   * Its round's 3DBB table in MapData.shapes (the catalogue entry's aRSL slot 0,
+   * the model `cact_missile_spawn` binds), -1 for none: the round then meets a
+   * body at Metropolis' 0.5 m (sim contact.ts).
+   */
+  readonly round: number;
 }
 
 /**
@@ -172,6 +189,116 @@ export interface MapRadii {
   /** The Sky Captain's model by level 0..9 (balance.ts wardenLevel). */
   readonly skyCaptain: readonly number[];
 }
+
+/**
+ * A turret's gun (fcop-fidelity.md G12). The gun is the turret actor: it stands
+ * on its base's attach point 0 (`turret_construct`, RE turret.c 913-918), turns
+ * and pitches there (`turret_tick` 0x0041c3e0: `math_matrix_from_angles(yaw,
+ * pitch, 0)` at 0x0041c7a9), and its round leaves from its model's point 0
+ * through that matrix (`cact_weapon_discharge` 0x0044d98d). Metres, from
+ * gen:pamodels' `turrets` (RE pa_models.json).
+ */
+export interface MapTurretGun {
+  /**
+   * The base's point 0's height over the turret's spot: the gun's position. Its
+   * horizontal offset (8 mm at most on the six arenas, in the base's own yaw)
+   * is left out.
+   */
+  readonly stand: number;
+  /** The muzzle in the gun's frame at zero yaw and pitch: right (glb x), up, forward. */
+  readonly mx: number;
+  readonly my: number;
+  readonly mz: number;
+}
+
+/** The type-8 (ring and outpost plate) turret's gun, and a neutral's per turret spot. */
+export interface MapTurretGuns {
+  readonly baseTurret: MapTurretGun;
+  readonly neutral: readonly MapTurretGun[];
+}
+
+/**
+ * One model's 3DBB table (RE docs/formats/objects.md "3DBB"), metres: `perFrame`
+ * boxes in each of `frames` frames, box-major -- box i of frame f is row
+ * i * frames + f -- each row SHAPE_WORDS numbers: its centre x, y, z, its half
+ * extents x, y, z, its 3D radius (`radius_68`) and its horizontal one
+ * (`half_h`). The model's own axes: x NOT negated (a glb's is), y up, +z
+ * forward. What `cact_pair_test` 0x00450190 and `cact_hit_boxes` 0x0044f640
+ * read (sim contact.ts).
+ */
+export interface MapShapeTable {
+  readonly perFrame: number;
+  readonly frames: number;
+  readonly boxes: Float64Array;
+}
+
+/** Numbers a MapShapeTable row holds. */
+export const SHAPE_WORDS = 8;
+
+/**
+ * A turret's two colliders: its gun (the actor that aims) standing on its base
+ * part's attach point 0 (turret.c 914-917) -- (px, py, pz) in the base's model
+ * axes, metres -- and the base, which forwards a contact to the gun
+ * (turret_part.c op 0x0b). Indices into MapShapes.tables.
+ */
+export interface MapTurretShape {
+  readonly gun: number;
+  readonly base: number;
+  readonly px: number;
+  readonly py: number;
+  readonly pz: number;
+}
+
+/**
+ * A unit (the tank, the jet, the Flying Fortress, the Sky Captain; gen:units'
+ * `unit`, drawn at its model's own origin): its table and where its model's
+ * origin stands from a body standing on the ground (lx, ly, lz, the model's
+ * axes, metres) -- the raw's grounding, read only for a tank off the road graph
+ * (contact.ts); a route follower's and an aircraft's position is its origin.
+ */
+export interface MapUnitShape {
+  readonly table: number;
+  readonly lx: number;
+  readonly ly: number;
+  readonly lz: number;
+  /**
+   * The model's points 0 and 1 at frame 0 in its glb frame (metres, +z
+   * forward, x the model's negated), as far as it has them: the muzzle
+   * `cact_weapon_discharge` (0x0044d98d) places through the body's matrix for
+   * a shooter whose +0x23 is 0 or 1. Empty for none.
+   */
+  readonly muzzles: readonly (readonly [number, number, number])[];
+}
+
+/**
+ * Every body's and round's hit boxes on this arena (fcop-fidelity.md G1): its
+ * own mission's models, indices into `tables`, -1 where the arena imports none
+ * (the test maps, the sandbox): a body or round without one meets the other at
+ * Metropolis' flat circle (contact.ts). The mech's legs and cockpit are the same
+ * models everywhere (x1Shapes.generated.ts).
+ */
+export interface MapShapes {
+  readonly tables: readonly MapShapeTable[];
+  readonly tank: MapUnitShape | null;
+  readonly jet: MapUnitShape | null;
+  readonly fortress: MapUnitShape | null;
+  /** The hull, every frame of its walk (its own origin, as drawn); -1 none. */
+  readonly dreadnought: number;
+  /** Gun i's model (mount.c: each forwards a contact to the hull); empty for none. */
+  readonly dreadnoughtGuns: readonly number[];
+  readonly baseTurret: MapTurretShape | null;
+  /** Per turretSpots entry; empty for none. */
+  readonly neutral: readonly MapTurretShape[];
+  /** By level 0..9; empty for none. */
+  readonly skyCaptain: readonly MapUnitShape[];
+  /** A world weapon's round by its catalogue id (the Sky Captain's 8 and 9). */
+  readonly worldRounds: Int16Array;
+  /** A player weapon's round by its loadout code (0x00..0x3f). */
+  readonly playerRounds: Int16Array;
+}
+
+/** Catalogue ids and loadout codes MapShapes' two round tables cover. */
+export const SHAPE_ROUND_SLOTS = 64;
 
 /**
  * One of the Dreadnought's gun mounts, in its models' glb frames (metres, +z
@@ -386,6 +513,14 @@ export interface MapBase {
    * ORIGINAL_*_QUEUE_PERIOD where the arena imports none.
    */
   readonly queuePeriod: MapQueuePeriods;
+  /**
+   * The base jet spawner's and the Fortress spawner's flight blocks (their
+   * records' altitudes and spawn flags, their models' half-extents;
+   * balance.ts AircraftFlight): Mp's (ORIGINAL_JET_FLIGHT / _FORTRESS_FLIGHT)
+   * where the arena imports none.
+   */
+  readonly jetFlight: AircraftFlight;
+  readonly fortressFlight: AircraftFlight;
 }
 
 /**
@@ -414,7 +549,48 @@ export interface MapLaneGraph {
    * loader labels the two connected components by the entry each contains.
    */
   readonly net: Uint8Array;
+  /**
+   * Each node's height in node units (1/32 m): what `cnet_load` (0x00441900)
+   * writes at node +8, `(terrain_height_at + 0x7f) >> 8` over the shipped
+   * plates. The route cursor measures its legs and their pitch with it
+   * (route.ts). 0 where the arena imports none.
+   */
+  readonly heights: Int16Array;
+  /**
+   * 1 for a node a mission script has closed: bit 1 of its state
+   * (`CNET_NODE_STATE_SCRIPT`), refused by the step chooser. As shipped,
+   * cleared and set at run time by Cfun opcode 0x3b (0x00440060) and the route
+   * orders 0x14 / 0x15 (0x00440120); no Precinct Assault script uses either.
+   */
+  readonly closed: Uint8Array;
+  /**
+   * The merged index of each imported Cnet's node 0, ascending from 0: the
+   * original compares node indices within one net (route.ts localNode).
+   */
+  readonly netStart: readonly number[];
+  /** The tank's route block (MapRouteParams): its spawner records'. */
+  readonly runnerRoute: MapRouteParams;
+  /** The Dreadnought's (type 28's). */
+  readonly juggernautRoute: MapRouteParams;
 }
+
+/**
+ * A route follower's parameter block as `cnet_route_init` (0x004415f0) copies
+ * it in from the record's payload +0x30 (fcop-fidelity.md U1, I6), raw: the
+ * flag word's low halfword -- 0 the tank, 0x20 (`CNET_ROUTE_BANK`) Hk's, 0x8
+ * the Dreadnought; neither 0x100 (`CNET_ROUTE_NO_PITCH`) nor 0x200
+ * (`CNET_ROUTE_ON_GROUND`) on any Precinct Assault record -- and the height
+ * bias, which the tick adds `<< 4` world units over the road (0x00440672):
+ * 307 the tank (Hk 102, Joke 20), 204 the Dreadnought (Joke 20).
+ */
+export interface MapRouteParams {
+  readonly flags: number;
+  readonly bias: number;
+}
+
+/** A road graph without imported records: no flag, no bias (the Dreadnought's 0x8 kept). */
+export const DEFAULT_RUNNER_ROUTE: MapRouteParams = { flags: 0, bias: 0 };
+export const DEFAULT_JUGGERNAUT_ROUTE: MapRouteParams = { flags: 0x8, bias: 0 };
 
 /** A power-up spot (original ItemPickup, act_type 16). */
 export interface MapPickup {
@@ -555,6 +731,8 @@ export interface MapOutpost {
   readonly jetSpawn: readonly MapPoint[];
   /** Per team: this outpost's tank and jet queues' periods in engine ticks (MapQueuePeriods). */
   readonly queuePeriod: readonly MapQueuePeriods[];
+  /** Per team: this outpost's jet spawner's flight block (ORIGINAL_JET_FLIGHT where none). */
+  readonly jetFlight: readonly AircraftFlight[];
 }
 
 /**
@@ -698,12 +876,33 @@ export interface MapData {
   /**
    * How far each role's reference point stands above its position, metres:
    * the box-0 centre of the same model and frame as its radius, placed as
-   * the original places it (`math_matrix_place_point` 0x00458850, the box's
-   * 1/512 units added as world units, so a few centimetres). It is what the
-   * original aims at and measures to (fcop-fidelity.md W5). MUZZLE_HEIGHT on
-   * every role where the arena imports none.
+   * the original places it (`math_matrix_place_point` 0x00458850: `(M * src)
+   * >> 12` with M in 16.16, so the box's 1/512 m units as metres; a turret's
+   * gun from its base's attach point 0). It is what the original aims at and
+   * measures to (fcop-fidelity.md W5). MUZZLE_HEIGHT on every role where the
+   * arena imports none.
    */
   readonly refHeights: MapRadii;
+  /**
+   * Each turret's gun as it aims and fires (fcop-fidelity.md G12): where it
+   * stands on its base and its muzzle, the type-8 gun's and a neutral's per
+   * `turretSpots` entry (MapTurretGun). Metropolis' stand-in muzzle on the
+   * ground (MUZZLE_OFFSET ahead, MUZZLE_HEIGHT up) where the arena imports none.
+   */
+  readonly turretGuns: MapTurretGuns;
+  /**
+   * The Sky Captain's flight block by level 0..9 (its record per level band;
+   * ORIGINAL_SKY_FLIGHT where the arena imports none).
+   */
+  readonly skyFlight: readonly AircraftFlight[];
+  /**
+   * The Sky Captain's missile's acceleration, the catalogue's weapon 8 +0x14
+   * raw: 0 on Mp, Conft, Hk and Ovmp (it leaves at its top speed), 0x7a on Slim
+   * and Joke (`cact_missile_spawn` 0x0044d103). 0 where the arena imports none.
+   */
+  readonly skyMissileAccel: number;
+  /** Every body's and round's hit boxes (MapShapes; none where the arena imports none). */
+  readonly shapes: MapShapes;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -963,6 +1162,8 @@ export interface MapJson {
     tankSpawn?: (number[] | { x: number; y: number; layer?: number })[];
     jetSpawn?: (number[] | { x: number; y: number; layer?: number })[];
     queuePeriod?: { tank: number; jet: number }[];
+    /** OPTIONAL, per team: the jet spawner's flight block (MapOutpost.jetFlight). */
+    jetFlight?: FlightJson[];
     plates: {
       spot: number;
       turrets: { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }[];
@@ -989,6 +1190,10 @@ export interface MapJson {
     arcCos?: number;
     hold?: number;
     priority?: number;
+    /** OPTIONAL: ALTERNATE (MapWeapon.alternate); absent -> 0. */
+    alternate?: number;
+    /** OPTIONAL: its round's table in `shapes.tables` (MapWeapon.round), -1 none. */
+    round?: number;
   }[];
   /** Weapon index per turretSpots entry; length must equal turretSpots.length. */
   turretParams?: number[];
@@ -1012,6 +1217,10 @@ export interface MapJson {
     neutral: number[];
     skyCaptain: number[];
   };
+  /** OPTIONAL: the Sky Captain's flight block per level 0..9 (MapData.skyFlight). */
+  skyFlight?: FlightJson[];
+  /** OPTIONAL: the Sky Captain's missile's raw acceleration (MapData.skyMissileAccel). */
+  skyMissileAccel?: number;
   /** OPTIONAL: each role's reference height (MapData.refHeights), the radii's shape. */
   refHeights?: {
     walker: number;
@@ -1025,6 +1234,32 @@ export interface MapJson {
     neutral: number[];
     skyCaptain: number[];
   };
+  /**
+   * OPTIONAL: each turret's gun (MapData.turretGuns): `stand` metres, `muzzle`
+   * [x, y, z] metres in the gun's glb frame; `neutral` parallel to turretSpots.
+   */
+  turretGuns?: {
+    baseTurret: { stand: number; muzzle: number[] };
+    neutral: { stand: number; muzzle: number[] }[];
+  };
+  /**
+   * OPTIONAL: every body's and round's 3DBB tables (MapShapes), raw halfwords
+   * (1/512 m) as the models hold them; `neutral` parallel to turretSpots, its
+   * `point` in glb metres (x negated).
+   */
+  shapes?: {
+    tables: { cobj?: number; perFrame: number; frames: number; boxes: number[][] }[];
+    tank: { table: number; lift: number[]; muzzles?: number[][] };
+    jet: { table: number; lift: number[]; muzzles?: number[][] };
+    fortress: { table: number; lift: number[]; muzzles?: number[][] };
+    dreadnought: number;
+    dreadnoughtGuns: number[];
+    baseTurret: { gun: number; base: number; point: number[] };
+    neutral: { gun: number; base: number; point: number[] }[];
+    skyCaptain: { table: number; lift: number[]; muzzles?: number[][] }[];
+    worldRounds: Record<string, number>;
+    playerRounds: Record<string, number>;
+  };
   /** Original Cnet graph. `edges` is one 4-tuple per node, -1 = no edge. */
   laneGraph?: {
     nodes: (number[] | { x: number; y: number; layer?: number })[];
@@ -1032,6 +1267,17 @@ export interface MapJson {
     nextHopA: number[][];
     nextHopB: number[][];
     entry: number[];
+    /** OPTIONAL node heights, node units (MapLaneGraph.heights); absent -> 0. */
+    heights?: number[];
+    /** OPTIONAL script-closed nodes, by index (MapLaneGraph.closed); absent -> none. */
+    closed?: number[];
+    /** OPTIONAL first node of each imported net (MapLaneGraph.netStart); absent -> [0]. */
+    netStart?: number[];
+    /**
+     * OPTIONAL route blocks (MapLaneGraph.runnerRoute / juggernautRoute), each
+     * `[flags, bias]` raw; absent -> DEFAULT_RUNNER_ROUTE / DEFAULT_JUGGERNAUT_ROUTE.
+     */
+    routes?: { runner: number[]; juggernaut: number[] };
   };
   /** OPTIONAL box, lift, model and spin per pickup (MapPickup); absent -> Mp's box, no model. */
   pickups?: {
@@ -1185,6 +1431,18 @@ export interface MapBaseJson {
   jetSpawn?: number[] | { x: number; y: number; layer?: number };
   /** OPTIONAL: the base's queue periods in engine ticks (MapQueuePeriods). */
   queuePeriod?: { tank: number; jet: number };
+  /** OPTIONAL: the jet and Fortress spawners' flight blocks (MapBase.jetFlight). */
+  jetFlight?: FlightJson;
+  fortressFlight?: FlightJson;
+}
+
+/** An aircraft record's flight block in a map JSON (balance.ts AircraftFlight). */
+interface FlightJson {
+  altMin: number;
+  altCruise: number;
+  altMax: number;
+  halfY: number;
+  spawn: number;
 }
 
 function fail(id: string, reason: string): never {
@@ -1282,6 +1540,163 @@ function parseRefHeights(raw: MapJson["refHeights"], radii: MapRadii, id: string
     baseTurret: r(raw.baseTurret, "baseTurret"),
     neutral: list(raw.neutral, radii.neutral.length, "neutral"),
     skyCaptain: list(raw.skyCaptain, 10, "skyCaptain"),
+  };
+}
+
+/** Metropolis' stand-in gun where the arena imports none: on the ground, the muzzle ahead and up. */
+const DEFAULT_TURRET_GUN: MapTurretGun = { stand: 0, mx: 0, my: MUZZLE_HEIGHT, mz: MUZZLE_OFFSET };
+
+function defaultTurretGuns(spots: number): MapTurretGuns {
+  return {
+    baseTurret: DEFAULT_TURRET_GUN,
+    neutral: new Array<MapTurretGun>(spots).fill(DEFAULT_TURRET_GUN),
+  };
+}
+
+/** The arena's turret guns: finite numbers, a neutral per turret spot. */
+function parseTurretGuns(raw: MapJson["turretGuns"], spots: number, id: string): MapTurretGuns {
+  if (raw === undefined) return defaultTurretGuns(spots);
+  const gun = (v: { stand: number; muzzle: number[] } | undefined, what: string): MapTurretGun => {
+    const m = v?.muzzle;
+    if (
+      v === undefined ||
+      typeof v.stand !== "number" ||
+      !Number.isFinite(v.stand) ||
+      !Array.isArray(m) ||
+      m.length !== 3 ||
+      !m.every((x) => typeof x === "number" && Number.isFinite(x))
+    ) {
+      fail(id, `turretGuns ${what} needs a finite stand and a 3-number muzzle`);
+    }
+    return { stand: v.stand, mx: m[0], my: m[1], mz: m[2] };
+  };
+  if (!Array.isArray(raw.neutral) || raw.neutral.length !== spots) {
+    fail(id, `turretGuns neutral needs ${spots} entries`);
+  }
+  return {
+    baseTurret: gun(raw.baseTurret, "baseTurret"),
+    neutral: raw.neutral.map((v, i) => gun(v, `neutral[${i}]`)),
+  };
+}
+
+/** No hit boxes at all: every body and round meets at Metropolis' flat circle. */
+export function noShapes(): MapShapes {
+  return {
+    tables: [],
+    tank: null,
+    jet: null,
+    fortress: null,
+    dreadnought: -1,
+    dreadnoughtGuns: [],
+    baseTurret: null,
+    neutral: [],
+    skyCaptain: [],
+    worldRounds: new Int16Array(SHAPE_ROUND_SLOTS).fill(-1),
+    playerRounds: new Int16Array(SHAPE_ROUND_SLOTS).fill(-1),
+  };
+}
+
+/** Raw halfwords (1/512 m) a metre: the models' unit. */
+const SHAPE_RAW_PER_METRE = 512;
+
+/** The arena's hit boxes, strictly (MapShapes): every index in range, every table whole. */
+function parseShapes(raw: MapJson["shapes"], id: string): MapShapes {
+  if (raw === undefined) return noShapes();
+  if (!Array.isArray(raw.tables)) fail(id, "shapes.tables is not an array");
+  const tables = raw.tables.map((t, k): MapShapeTable => {
+    const what = `shapes table ${k}`;
+    if (!Number.isInteger(t?.perFrame) || t.perFrame < 1) fail(id, `${what} bad perFrame`);
+    if (!Number.isInteger(t.frames) || t.frames < 1) fail(id, `${what} bad frames`);
+    if (!Array.isArray(t.boxes) || t.boxes.length !== t.perFrame * t.frames) {
+      fail(id, `${what} needs ${t.perFrame * t.frames} boxes`);
+    }
+    const boxes = new Float64Array(t.boxes.length * SHAPE_WORDS);
+    t.boxes.forEach((b, i) => {
+      if (!Array.isArray(b) || b.length !== SHAPE_WORDS) fail(id, `${what} box ${i} not 8 words`);
+      for (let w = 0; w < SHAPE_WORDS; w++) {
+        if (!Number.isInteger(b[w])) fail(id, `${what} box ${i} word ${w} not an integer`);
+        boxes[i * SHAPE_WORDS + w] = b[w] / SHAPE_RAW_PER_METRE;
+      }
+    });
+    return { perFrame: t.perFrame, frames: t.frames, boxes };
+  });
+  const at = (v: unknown, what: string): number => {
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v >= tables.length) {
+      fail(id, `shapes ${what}: ${String(v)} out of range`);
+    }
+    return v;
+  };
+  const turret = (t: { gun: number; base: number; point: number[] }, what: string) => {
+    if (!t || !Array.isArray(t.point) || t.point.length !== 3) fail(id, `shapes ${what} bad`);
+    for (const v of t.point) {
+      if (typeof v !== "number" || !Number.isFinite(v)) fail(id, `shapes ${what} bad point`);
+    }
+    // The point is a glb's (x negated); the tables are the model's own axes.
+    return {
+      gun: at(t.gun, `${what} gun`),
+      base: at(t.base, `${what} base`),
+      px: -t.point[0],
+      py: t.point[1],
+      pz: t.point[2],
+    };
+  };
+  const unit = (
+    u: { table: number; lift: number[]; muzzles?: number[][] },
+    what: string,
+  ): MapUnitShape => {
+    if (!u || !Array.isArray(u.lift) || u.lift.length !== 3) fail(id, `shapes ${what} bad`);
+    for (const v of u.lift) {
+      if (typeof v !== "number" || !Number.isFinite(v)) fail(id, `shapes ${what} bad lift`);
+    }
+    const ms = u.muzzles ?? [];
+    if (!Array.isArray(ms) || ms.length > 2) fail(id, `shapes ${what} bad muzzles`);
+    for (const m of ms) {
+      if (!Array.isArray(m) || m.length !== 3) fail(id, `shapes ${what} bad muzzle`);
+      for (const v of m) {
+        if (typeof v !== "number" || !Number.isFinite(v)) fail(id, `shapes ${what} bad muzzle`);
+      }
+    }
+    return {
+      table: at(u.table, what),
+      lx: u.lift[0],
+      ly: u.lift[1],
+      lz: u.lift[2],
+      muzzles: ms.map((m) => [m[0], m[1], m[2]] as const),
+    };
+  };
+  const rounds = (r: Record<string, number>, what: string): Int16Array => {
+    const out = new Int16Array(SHAPE_ROUND_SLOTS).fill(-1);
+    if (!r || typeof r !== "object") fail(id, `shapes ${what} is not an object`);
+    // Read in key order 0..63, never the object's insertion order.
+    for (let k = 0; k < SHAPE_ROUND_SLOTS; k++) {
+      const v = r[String(k)];
+      if (v !== undefined) out[k] = at(v, `${what} ${k}`);
+    }
+    for (const key of Object.keys(r)) {
+      const k = Number(key);
+      if (!Number.isInteger(k) || k < 0 || k >= SHAPE_ROUND_SLOTS)
+        fail(id, `shapes ${what} key ${key}`);
+    }
+    return out;
+  };
+  if (!Array.isArray(raw.dreadnoughtGuns) || !Array.isArray(raw.neutral)) {
+    fail(id, "shapes lists are not arrays");
+  }
+  if (!Array.isArray(raw.skyCaptain) || raw.skyCaptain.length !== 10) {
+    fail(id, "shapes.skyCaptain needs 10 levels");
+  }
+  return {
+    tables,
+    tank: unit(raw.tank, "tank"),
+    jet: unit(raw.jet, "jet"),
+    fortress: unit(raw.fortress, "fortress"),
+    dreadnought: at(raw.dreadnought, "dreadnought"),
+    dreadnoughtGuns: raw.dreadnoughtGuns.map((v, i) => at(v, `dreadnoughtGuns ${i}`)),
+    baseTurret: turret(raw.baseTurret, "baseTurret"),
+    neutral: raw.neutral.map((t, i) => turret(t, `neutral ${i}`)),
+    skyCaptain: raw.skyCaptain.map((v, i) => unit(v, `skyCaptain ${i}`)),
+    worldRounds: rounds(raw.worldRounds, "worldRounds"),
+    playerRounds: rounds(raw.playerRounds, "playerRounds"),
   };
 }
 
@@ -1486,6 +1901,14 @@ export function loadMapFromJson(raw: MapJson): MapData {
   // original's own (balance.ts ORIGINAL_WEAPON_PROFILES, in the imported arenas'
   // order): every turret and unit on every arena is the original's
   // (fcop-fidelity.md W3, owner's call 2026-10-12).
+  const shapes = parseShapes(raw.shapes, id);
+  const shapeIndex = (v: number | undefined, what: string): number => {
+    if (v === undefined) return -1;
+    if (!Number.isInteger(v) || v < -1 || v >= shapes.tables.length) {
+      fail(id, `${what}: shape ${v} out of range (${shapes.tables.length} tables)`);
+    }
+    return v;
+  };
   const weapons: MapWeapon[] = (raw.weapons ?? []).map((w, k) => {
     if (!w || typeof w !== "object") fail(id, `weapon ${k} is not an object`);
     const range = num(w.range, `weapon ${k} range`);
@@ -1524,6 +1947,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
       arcCos,
       hold: opt(w.hold, "hold", 0) ? 1 : 0,
       priority: opt(w.priority, "priority", 0) ? 1 : 0,
+      alternate: opt(w.alternate, "alternate", 0) ? 1 : 0,
+      round: shapeIndex(w.round, `weapon ${k} round`),
     };
   });
   // An index the map names itself refers to its own profiles, never to the
@@ -1795,6 +2220,13 @@ export function loadMapFromJson(raw: MapJson): MapData {
       tankSpawn: point(b.tankSpawn ?? b.groundConsole, `base ${team} tank spawn`),
       jetSpawn: point(b.jetSpawn ?? b.airConsole, `base ${team} jet spawn`),
       queuePeriod: queuePeriodOf(b.queuePeriod, `base ${team} queues`),
+      jetFlight: flightOf(id, b.jetFlight, `base ${team} jet flight`, ORIGINAL_JET_FLIGHT),
+      fortressFlight: flightOf(
+        id,
+        b.fortressFlight,
+        `base ${team} fortress flight`,
+        ORIGINAL_FORTRESS_FLIGHT,
+      ),
     };
   });
 
@@ -1862,6 +2294,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
         queuePeriod: perTeam(o.queuePeriod, "queuePeriod").map((q, t) =>
           queuePeriodOf(q, `${what} team ${t} queues`),
         ),
+        jetFlight: perTeam(o.jetFlight, "jetFlight").map((f, t) =>
+          flightOf(id, f, `${what} team ${t} jet flight`, ORIGINAL_JET_FLIGHT),
+        ),
       });
       if (!Array.isArray(o.plates)) fail(id, `${what} plates is not a list`);
       o.plates.forEach((pl, j) => {
@@ -1885,6 +2320,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
 
   // Without one, the original's 4.0 m (Mp/Conft/Ovmp; ORIGINAL_CAPTURE_RANGE).
   const radii = parseRadii(raw.radii, turretSpots.length, id);
+  if (shapes.neutral.length > 0 && shapes.neutral.length !== turretSpots.length) {
+    fail(id, `shapes: ${shapes.neutral.length} neutral turrets for ${turretSpots.length} spots`);
+  }
   // A walking hull's radii, where the arena imports them, cover its walk's
   // frames, frame 0 its own radius (without them it keeps frame 0's); a static
   // hull has none.
@@ -1969,6 +2407,49 @@ export function loadMapFromJson(raw: MapJson): MapData {
         at = nextHopA[team * n + at];
       }
     }
+    const heights = new Int16Array(n);
+    if (g.heights !== undefined) {
+      if (!Array.isArray(g.heights) || g.heights.length !== n) {
+        fail(id, `laneGraph heights has ${g.heights?.length} entries for ${n} nodes`);
+      }
+      for (let k = 0; k < n; k++) {
+        const h = g.heights[k];
+        if (!Number.isInteger(h) || h < -0x8000 || h > 0x7fff) {
+          fail(id, `laneGraph height ${k} is not a 16-bit integer (${h})`);
+        }
+        heights[k] = h;
+      }
+    }
+    const closed = new Uint8Array(n);
+    for (const k of g.closed ?? []) {
+      if (!Number.isInteger(k) || k < 0 || k >= n)
+        fail(id, `laneGraph closed node ${k} out of range`);
+      closed[k] = 1;
+    }
+    const netStart = g.netStart ?? [0];
+    if (netStart.length === 0 || netStart[0] !== 0) fail(id, "laneGraph netStart must start at 0");
+    for (let k = 1; k < netStart.length; k++) {
+      if (!Number.isInteger(netStart[k]) || netStart[k] <= netStart[k - 1] || netStart[k] >= n) {
+        fail(id, `laneGraph netStart ${netStart[k]} out of order`);
+      }
+    }
+    const route = (v: number[] | undefined, fallback: MapRouteParams, what: string) => {
+      if (v === undefined) return fallback;
+      if (!Array.isArray(v) || v.length !== 2)
+        fail(id, `laneGraph ${what} route is not [flags, bias]`);
+      const [flags, bias] = v;
+      if (!Number.isInteger(flags) || flags < 0 || flags > 0xffff)
+        fail(id, `laneGraph ${what} route flags ${flags} are not a halfword`);
+      // The port (route.ts) reaches the arms 0x8 (no traffic, no contact
+      // transfer: the Dreadnought's) and 0x20 (the bank) take, and no other:
+      // a record with 0x100 or 0x200 would need `cnet_route_orient`'s other
+      // arms, with 0x10 the rise, and so on. No Precinct Assault record has one.
+      if ((flags & ~0x28) !== 0)
+        fail(id, `laneGraph ${what} route flags 0x${flags.toString(16)} take arms not modelled`);
+      if (!Number.isInteger(bias) || bias < -0x8000 || bias > 0x7fff)
+        fail(id, `laneGraph ${what} route bias ${bias} is not a halfword`);
+      return { flags, bias };
+    };
     laneGraph = {
       nodes,
       edges,
@@ -1976,6 +2457,11 @@ export function loadMapFromJson(raw: MapJson): MapData {
       nextHopB,
       entry: [g.entry[0], g.entry[1]],
       net: labelNets(edges, n, g.entry),
+      heights,
+      closed,
+      netStart: [...netStart],
+      runnerRoute: route(g.routes?.runner, DEFAULT_RUNNER_ROUTE, "runner"),
+      juggernautRoute: route(g.routes?.juggernaut, DEFAULT_JUGGERNAUT_ROUTE, "juggernaut"),
     };
   }
 
@@ -2180,6 +2666,10 @@ export function loadMapFromJson(raw: MapJson): MapData {
     captureRange,
     radii,
     refHeights: parseRefHeights(raw.refHeights, radii, id),
+    turretGuns: parseTurretGuns(raw.turretGuns, radii.neutral.length, id),
+    skyFlight: skyFlightOf(id, raw.skyFlight),
+    skyMissileAccel: skyMissileAccelOf(id, raw.skyMissileAccel),
+    shapes,
     laneGraph,
     pickups,
     triggerVolumes,
@@ -2189,6 +2679,46 @@ export function loadMapFromJson(raw: MapJson): MapData {
     lifts,
     coarse: parseCoarse(id, raw.coarse),
   };
+}
+
+/** A flight block, strictly: integer halfwords, altMin < altCruise < altMax (the gains divide by both bands). */
+function flightOf(
+  id: string,
+  raw: FlightJson | undefined,
+  what: string,
+  fallback: AircraftFlight,
+): AircraftFlight {
+  if (raw === undefined) return fallback;
+  if (!raw || typeof raw !== "object") fail(id, `${what} is not an object`);
+  const { altMin, altCruise, altMax, halfY, spawn } = raw;
+  for (const [k, v] of [
+    ["altMin", altMin],
+    ["altCruise", altCruise],
+    ["altMax", altMax],
+    ["halfY", halfY],
+    ["spawn", spawn],
+  ] as const) {
+    if (!Number.isInteger(v) || v < 0 || v > 0x7fff)
+      fail(id, `${what} ${k} is not a halfword (${v})`);
+  }
+  if (!(altMin < altCruise && altCruise < altMax)) fail(id, `${what} altitudes are not ordered`);
+  return { altMin, altCruise, altMax, halfY, spawn };
+}
+
+function skyMissileAccelOf(id: string, raw: number | undefined): number {
+  if (raw === undefined) return 0;
+  if (!Number.isInteger(raw) || raw < 0 || raw > 0x7fff)
+    fail(id, `skyMissileAccel ${raw} is not a halfword`);
+  return raw;
+}
+
+function skyFlightOf(id: string, raw: FlightJson[] | undefined): readonly AircraftFlight[] {
+  if (raw === undefined) return ORIGINAL_SKY_FLIGHT;
+  if (!Array.isArray(raw) || raw.length !== 10)
+    fail(id, "skyFlight needs one entry per level 0..9");
+  return raw.map((f, l) =>
+    flightOf(id, f, `sky captain level ${l} flight`, ORIGINAL_SKY_FLIGHT[l]),
+  );
 }
 
 function parseCoarse(id: string, raw: MapJson["coarse"]): MapCoarse | null {
@@ -2306,6 +2836,8 @@ export function createTestMap(): MapData {
     tankSpawn: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
     jetSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
     queuePeriod: { tank: ORIGINAL_TANK_QUEUE_PERIOD, jet: ORIGINAL_JET_QUEUE_PERIOD },
+    jetFlight: ORIGINAL_JET_FLIGHT,
+    fortressFlight: ORIGINAL_FORTRESS_FLIGHT,
   });
   return {
     id: TEST_MAP_ID,
@@ -2344,6 +2876,10 @@ export function createTestMap(): MapData {
     captureRange: ORIGINAL_CAPTURE_RANGE,
     radii: defaultRadii(0),
     refHeights: defaultRefHeights(0),
+    turretGuns: defaultTurretGuns(0),
+    skyFlight: ORIGINAL_SKY_FLIGHT,
+    skyMissileAccel: 0,
+    shapes: noShapes(),
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],

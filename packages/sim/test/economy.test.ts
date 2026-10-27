@@ -173,7 +173,9 @@ describe("income (fcop-fidelity.md R2-R7)", () => {
     // No killer at all (environment): the death script pays regardless.
     sim.ent.hp[runner] = 0;
     sim.ent.hp[guard] = 0;
-    step(sim, inputs);
+    // A downed jet may tumble to the ground first (A19): it pays when it lands.
+    for (let t = 0; t < 300 && sim.ent.alive[guard]; t++) step(sim, inputs);
+    expect(sim.ent.alive[guard]).toBe(0);
     expect(POINTS_UNIT_DIES).toBe(1);
     expect(sim.points[0]).toBe(STARTING_POINTS + 2 * POINTS_UNIT_DIES);
     expect(sim.points[1]).toBe(STARTING_POINTS);
@@ -186,7 +188,8 @@ describe("income (fcop-fidelity.md R2-R7)", () => {
     const fort = spawnUnit(sim, ARCHETYPE.FORTRESS, 0, 30, 24);
     sim.ent.hp[jugg] = 0;
     sim.ent.hp[fort] = 0;
-    step(sim, inputs);
+    for (let t = 0; t < 600 && sim.ent.alive[fort]; t++) step(sim, inputs);
+    expect(sim.ent.alive[fort]).toBe(0);
     expect(POINTS_HEAVY_DIES).toBe(5);
     expect(sim.points[1]).toBe(STARTING_POINTS + 2 * POINTS_HEAVY_DIES);
     expect(sim.points[0]).toBe(STARTING_POINTS);
@@ -233,6 +236,9 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     expect(RUNNER_ALIVE_LIMIT).toBe(20);
     expect(GUARDIAN_ALIVE_LIMIT).toBe(20);
     for (let k = 0; k < RUNNER_ALIVE_LIMIT; k++) spawnUnit(sim, ARCHETYPE.RUNNER, 0, 6, 40);
+    // The gate reads the side's count word (state word 27), which twenty
+    // purchases leave at 20; units spawned outside a purchase do not raise it.
+    sim.unitCount[0] = RUNNER_ALIVE_LIMIT;
     sim.points[0] = 100;
     sim.ent.posX[0] = 6;
     sim.ent.posY[0] = 14;
@@ -247,6 +253,31 @@ describe("alive caps and the heavy unlock (fcop-fidelity.md R9, R10)", () => {
     expect(sim.points[0]).toBe(100);
     press(sim, 6, 22, BTN_ACTION);
     expect(sim.points[0]).toBe(100 - COST_GUARDIAN); // the jet cap is separate
+  });
+
+  it("keeps counting a unit its spawner refused: the count word drifts (U3)", () => {
+    reset();
+    const sim = freshSim();
+    // Twenty tanks alive that no purchase counted, and one bought: the press is
+    // accepted (word 27 is 1) and queued, and the queue's spawner refuses it.
+    for (let k = 0; k < RUNNER_ALIVE_LIMIT; k++) spawnUnit(sim, ARCHETYPE.RUNNER, 0, 6, 40);
+    sim.points[0] = 100;
+    press(sim, 6, 14, BTN_ACTION);
+    expect(sim.points[0]).toBe(100 - COST_RUNNER);
+    expect(sim.unitCount[0]).toBe(1);
+    for (let t = 0; t < 2000 && sim.unitQueue[0] > 0; t++) step(sim, inputs);
+    expect(sim.unitQueue[0]).toBe(0);
+    expect(sim.unitCount[0]).toBe(1); // spent, never spawned, still counted
+    // A tank's death lowers the word, whichever tank it was.
+    let killed = 0;
+    for (let id = 0; id < sim.ent.high && killed < 2; id++) {
+      if (sim.ent.alive[id] && sim.ent.archetype[id] === ARCHETYPE.RUNNER) {
+        sim.ent.hp[id] = 0;
+        killed += 1;
+      }
+    }
+    step(sim, inputs);
+    expect(sim.unitCount[0]).toBe(-1);
   });
 
   it("opens the heavy zones at the first poll that sees 50, and keeps them open", () => {

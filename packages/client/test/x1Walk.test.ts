@@ -7,6 +7,8 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  AVATAR_SNAP_AIM_PITCH,
+  AVATAR_SNAP_AIM_YAW,
   AVATAR_SNAPSHOT_LEN,
   BTN_FORWARD,
   BTN_JUMP,
@@ -19,7 +21,7 @@ import {
   TRANSFORM_LOCK_TICKS,
   writeAvatarSnapshot,
 } from "@metropolis/sim";
-import { AIM_STEP, aimX1, createX1Walk, tickX1Walk, X1_CODES_PER_TICK } from "../src/render/x1Walk";
+import { createX1Walk, tickX1Walk, X1_CODES_PER_TICK } from "../src/render/x1Walk";
 
 /** The sim's own machine (a test may look inside the sim; the client may not). */
 const machine = (sim: SimState) => sim.walker;
@@ -80,8 +82,11 @@ describe("tickX1Walk", () => {
     expect(x1.owner[1]).toBe(-1);
     expect(x1.owner[0]).toBe(sim.avatarId[0]);
     expect(x1.aimYaw[0]).toBe(0);
-    // The aim steps AIM_STEP a tick toward the lock's bearing.
-    aimX1(x1, 0, true, 1, 1, 0, 0);
-    expect(x1.aimYaw[0]).toBe(AIM_STEP);
+    // The aim is the sim's, off the snapshot (orient.ts systemCockpitAim).
+    snap[AVATAR_SNAP_AIM_YAW] = 0x18;
+    snap[AVATAR_SNAP_AIM_PITCH] = -0x30;
+    tickX1Walk(x1, snap);
+    expect(x1.aimYaw[0]).toBe(0x18);
+    expect(x1.aimPitch[0]).toBe(-0x30);
   });
 });

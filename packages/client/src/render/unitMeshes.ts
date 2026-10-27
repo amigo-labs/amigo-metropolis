@@ -145,7 +145,14 @@ function unitAssetOf(
   // A unit's team is a texture offset per instance (render/teamUv.ts); the
   // projectiles keep their tint (render/fx.ts, docs/specs/fcop-fx.md).
   const team = dir === "units";
-  const material = faceMaterials(model, { unlit, patch: team ? patchTeamUv : undefined });
+  // A unit's faces turn red the frame after a hit (render/damaged.ts): every
+  // geometry they draw carries the per-instance flag (arenaUnits.ts,
+  // avatarRig.ts, the shatters).
+  const material = faceMaterials(model, {
+    unlit,
+    hit: team,
+    patch: team ? patchTeamUv : undefined,
+  });
   if (team) prepareTeamUvMask(geometry);
   return { geometry, material, map, extras: model.extras };
 }

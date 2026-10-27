@@ -98,7 +98,9 @@ presets (the primary, then the fallbacks).
    the primary first; otherwise the next fallback is probed (past the row's end,
    back to the first fallback) and goes live if clear. Metropolis traces the
    map's heightfield and decks (`render/cameraTrace.ts`) from 0.5 m above the
-   feet; the original's see-through material bit has no counterpart.
+   feet, eye → anchor first as the original; a first hit on a see-through plate
+   (material bit 7, `gen:viewterrain`: la-cantina's catwalks) is retraced from
+   the anchor, and a second such hit, or none, is clear.
 5. **Turn**: yaw toward base + the preset's yaw delta, pitch toward the preset's
    pitch, each `half_dt` steps of `(31·from + to)/32` the short way round, with
    the original's linear unit-a-step guarantee for small gaps; pitch capped at 2

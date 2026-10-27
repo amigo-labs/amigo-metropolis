@@ -12,6 +12,8 @@
 //     -> tools/generators/units/raw/fcop-x1/layers.json           (the partner's masks)
 //   <RE>/fixtures/missions/Mp, Cobj 15 and 16 (the legs and the cockpit), 3DHS
 //     -> tools/generators/units/raw/fcop-x1/channels.json         (the mount points)
+//   <RE>/fixtures/missions/Mp, Cobj 15 and 16, 3DBB
+//     -> tools/generators/units/raw/fcop-x1/boxes.json            (the hit boxes per frame)
 //   <RE>/fixtures/missions/Mp, Cobj 15-18 (every part), 3DQL and 4DVL
 //     -> tools/generators/units/raw/fcop-x1/faces.json            (the faces)
 //   raws
@@ -19,6 +21,7 @@
 //     -> packages/client/public/models/units/avatar-x1.anim.bin   (the bone table)
 //     -> packages/client/src/render/x1Rig.generated.ts            (the bone table's layout, the masks)
 //     -> packages/sim/src/x1Tracks.generated.ts                    (the AnmD tracks)
+//     -> packages/sim/src/x1Shapes.generated.ts                    (the colliders, the partner's mount)
 //
 // The faces keep the original's draw modes and layers (RE docs/formats/
 // objects.md "Face draw modes", x1-alpha.md "Draw modes and layers";
@@ -29,6 +32,15 @@
 // and the cockpit with a layer mask read off the transform's progress
 // (player_partner.c 299-320), which the vertex shader applies per instance
 // (render/avatarRig.ts).
+//
+// And the original's lighting (RE docs/formats/objects.md "Face lighting";
+// fcop-fidelity.md G13): every vertex carries its face's `_FCOP_LIGHT` and the
+// NORMAL it is lit against, which the RE's parts carry since M3-OZ
+// (extract_x1.py builds them with `build_mesh(light=True)`). The legs, the
+// cockpit and the guns are smooth grey (material 4) at 0x80, the beacon plain
+// grey (0). A skeleton turns its normals through each bone's 3x3 and keeps the
+// light in camera space (`cact_model_project` 0x004281db..0x00428206), which
+// the rig's shader does with the same bone table it poses the vertices by.
 //
 // The assembly is the original's (RE tools/gfx/extract_x1.py, player.c 1621,
 // player_partner.c 1611-1739, player_bone.c): the legs stand at the actor's
@@ -83,6 +95,7 @@ export const X1_OUT_TS = join(
   "x1Rig.generated.ts",
 );
 export const X1_OUT_SIM_TS = join(REPO_ROOT, "packages", "sim", "src", "x1Tracks.generated.ts");
+export const X1_OUT_SHAPES_TS = join(REPO_ROOT, "packages", "sim", "src", "x1Shapes.generated.ts");
 
 /** The parts the RE exports, by their file under extracted/x1/. */
 const PART_FILES = ["x1_legs.glb", "x1_cockpit.glb", "x1_weapon.glb", "x1_beacon_lights.glb"];
@@ -122,6 +135,12 @@ const GUN_RECORDS = [2, 4] as const;
 const BEACON_POINT = 2;
 /** The legs' model point the cockpit stands on (player.c 1621). */
 const MOUNT_POINT = 0;
+/**
+ * The cockpit's model point the lock beam leaves from: `hud_draw_lock_beam`
+ * takes point 0 of the partner's model (0x00435382), and the partner's model is
+ * the cockpit (aRSL slot 2, `player_partner_construct` 0x00447b15).
+ */
+const BEAM_POINT = 0;
 
 // --- the bone table's layout: one RGBA float texel per matrix row ------------
 
@@ -135,6 +154,22 @@ interface Channels {
   readonly source: string;
   readonly legs: ChannelSet;
   readonly cockpit: ChannelSet;
+}
+/**
+ * boxes.json: the legs' and the cockpit's 3DBB tables (RE docs/formats/objects.md
+ * "3DBB"), raw int16, one box a frame: centre x y z, half x y z, the 3D radius
+ * and the horizontal one, the model's own axes.
+ */
+interface Boxes {
+  readonly source: string;
+  readonly legs: BoxSet;
+  readonly cockpit: BoxSet;
+}
+interface BoxSet {
+  readonly cobj: number;
+  readonly sha256: string;
+  readonly frames: number;
+  readonly boxes: readonly (readonly number[])[];
 }
 interface ChannelSet {
   readonly cobj: number;
@@ -289,6 +324,11 @@ interface Part {
   readonly position: Float32Array;
   readonly normal: Float32Array;
   readonly uv: Float32Array;
+  /**
+   * Per vertex, four bytes: its face's `_FCOP_LIGHT` (lighting material, 3DTL
+   * bytes 1..3), what `cact_model_shade_face` (0x00428c70) shades it by.
+   */
+  readonly light: Uint8Array;
   /** Per vertex: its joint (skinned parts), else 0. */
   readonly joint: Uint8Array;
   /** Per vertex: its face's draw mode (an index into MODES) and layer (op1 bits 4..6). */
@@ -341,6 +381,7 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
   const position = new Float32Array(count * 3);
   const normal = new Float32Array(count * 3);
   const uv = new Float32Array(count * 2);
+  const light = new Uint8Array(count * 4);
   const joint = new Uint8Array(count);
   const mode = new Uint8Array(count);
   const layer = new Uint8Array(count);
@@ -355,6 +396,10 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
     position.set(p, at * 3);
     normal.set(arrayOf(prim.getAttribute("NORMAL"), `${file} NORMAL`), at * 3);
     uv.set(arrayOf(prim.getAttribute("TEXCOORD_0"), `${file} TEXCOORD_0`), at * 2);
+    const lit = prim.getAttribute("_FCOP_LIGHT")?.getArray();
+    if (!(lit instanceof Uint8Array) || lit.length !== n * 4)
+      throw new Error(`${file}: a primitive without its _FCOP_LIGHT bytes`);
+    light.set(lit, at * 4);
     const key = faceKeyOf(prim, file);
     mode.fill(key.mode, at, at + n);
     layer.fill(key.layer, at, at + n);
@@ -391,6 +436,7 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
       position,
       normal,
       uv,
+      light,
       joint,
       mode,
       layer,
@@ -453,7 +499,20 @@ async function readPart(io: NodeIO, file: string): Promise<Part> {
     };
     world.push(jointNodes.map((n) => worldOf(n)));
   }
-  return { position, normal, uv, joint, mode, layer, count, frames, world, inverseBind, image };
+  return {
+    position,
+    normal,
+    uv,
+    light,
+    joint,
+    mode,
+    layer,
+    count,
+    frames,
+    world,
+    inverseBind,
+    image,
+  };
 }
 
 // --- the build ------------------------------------------------------------------
@@ -464,6 +523,8 @@ export interface X1Build {
   readonly ts: string;
   /** The AnmD tracks, for the sim (packages/sim/src/x1Tracks.generated.ts). */
   readonly simTs: string;
+  /** The legs' and cockpit's hit boxes and the partner's mount (x1Shapes.generated.ts). */
+  readonly shapesTs: string;
 }
 
 /** The track table's shape in tracks.json (`parts.<part>.tracks`). */
@@ -581,6 +642,7 @@ export async function buildX1(): Promise<X1Build> {
     const position = new Float32Array(total * 3);
     const normal = new Float32Array(total * 3);
     const uv = new Float32Array(total * 2);
+    const light = new Uint8Array(total * 4);
     const slotAttr = new Float32Array(total);
     const teamUv = new Float32Array(total);
     const layerAttr = new Float32Array(total);
@@ -592,6 +654,7 @@ export async function buildX1(): Promise<X1Build> {
         position.set(part.position.subarray(v * 3, v * 3 + 3), at * 3);
         normal.set(part.normal.subarray(v * 3, v * 3 + 3), at * 3);
         uv.set(part.uv.subarray(v * 2, v * 2 + 2), at * 2);
+        light.set(part.light.subarray(v * 4, v * 4 + 4), at * 4);
         slotAttr[at] = slot(v);
         teamUv[at] = team;
         layerAttr[at] = part.layer[v];
@@ -623,6 +686,10 @@ export async function buildX1(): Promise<X1Build> {
         .setAttribute("POSITION", accessor("POSITION", "VEC3", position))
         .setAttribute("NORMAL", accessor("NORMAL", "VEC3", normal))
         .setAttribute("TEXCOORD_0", accessor("TEXCOORD_0", "VEC2", uv))
+        .setAttribute(
+          "_FCOP_LIGHT",
+          doc.createAccessor("_FCOP_LIGHT").setType("VEC4").setArray(light).setBuffer(buffer),
+        )
         .setAttribute("_X1BONE", accessor("_X1BONE", "SCALAR", slotAttr))
         .setAttribute("_TEAMUV", accessor("_TEAMUV", "SCALAR", teamUv))
         .setAttribute("_X1LAYER", accessor("_X1LAYER", "SCALAR", layerAttr))
@@ -708,6 +775,17 @@ export async function buildX1(): Promise<X1Build> {
     " */",
     `export const X1_LEGS_LAYER_MASKS: readonly number[] = [${legMasks.join(", ")}];`,
     `export const X1_COCKPIT_LAYER_MASKS: readonly number[] = [${cockpitMasks.join(", ")}];`,
+    "/**",
+    " * The cockpit's model point 0 (3DHS channel 0) by cockpit frame, (x, y, z) in",
+    " * the cockpit's model space, metres: where the lock beam leaves the X1",
+    " * (`hud_draw_lock_beam` 0x00435382, the partner's model point 0), turned by",
+    " * the cockpit's aim and set on the mount as a cockpit vertex is",
+    " * (render/x1Pose.ts).",
+    " */",
+    `export const X1_BEAM_POINT: readonly number[] = [${Array.from(
+      { length: cockpit.frames },
+      (_, f) => channelPos(channels.cockpit, BEAM_POINT, f).join(", "),
+    ).join(", ")}];`,
     "",
   ].join("\n");
   const trackSource = sources.filter((line) => line.includes("tracks.json"));
@@ -755,7 +833,83 @@ export async function buildX1(): Promise<X1Build> {
     bin: new Uint8Array(data.buffer),
     ts: biomeFormat(ts, X1_OUT_TS),
     simTs: biomeFormat(simTs, X1_OUT_SIM_TS),
+    shapesTs: biomeFormat(shapesTs(channels), X1_OUT_SHAPES_TS),
   };
+}
+
+/**
+ * The sim's X1 colliders (fcop-fidelity.md G1, P4): the legs' box per frame (the
+ * type-1 actor, `walk_select_frame` / `form_select_frame` re-read it each frame
+ * its legs show, player_walk.c 118-130, player.c 1524-1526), the cockpit's (the
+ * type-0x12 partner, which forwards a contact to the mech: player_partner.c
+ * op 0x0b) and where the partner stands -- the legs' model point 0 of the frame
+ * (`player_partner_tick` 0x004470f7).
+ */
+function shapesTs(channels: Channels): string {
+  const boxes = JSON.parse(readFileSync(join(X1_RAW_DIR, "boxes.json"), "utf8")) as Boxes;
+  for (const role of CHANNEL_PARTS) {
+    if (
+      boxes[role].frames !== channels[role].frames ||
+      boxes[role].boxes.length !== boxes[role].frames
+    )
+      throw new Error(`boxes.json: the ${role} has not one box a frame`);
+    if (boxes[role].sha256 !== channels[role].sha256)
+      throw new Error(`boxes.json and channels.json read different ${role} models`);
+  }
+  const legs = channels.legs;
+  const point0 = legs.xyz.filter((_, i) => i % legs.count === MOUNT_POINT);
+  const sha = (f: string) =>
+    `//   ${f} ${createHash("sha256")
+      .update(readFileSync(join(X1_RAW_DIR, f)))
+      .digest("hex")
+      .slice(0, 16)}`;
+  const flat = (rows: readonly (readonly number[])[]) => rows.map((r) => r.join(", ")).join(", ");
+  return [
+    "// Generated by `bun run gen:x1` (tools/generators/fcopX1.ts). Do not edit.",
+    "//",
+    "// The X1-Alpha's two colliders, as the shipped Cobjs hold them (Mp's 15 and",
+    "// 16, the same models on every map): the legs' and the cockpit's 3DBB box per",
+    "// frame and the legs' model point 0 per frame, where the cockpit -- the",
+    "// partner actor -- stands. Raw int16, 1/512 m, the model's own axes (x not",
+    "// negated). From:",
+    sha("boxes.json"),
+    sha("channels.json"),
+    "",
+    "/** Halfwords a box: centre x y z, half x y z, the 3D radius, the horizontal one. */",
+    "export const X1_BOX_WORDS = 8;",
+    `/** The legs' (Cobj ${boxes.legs.cobj}) box, frame f at X1_BOX_WORDS * f; ${boxes.legs.frames} frames. */`,
+    `export const X1_LEGS_BOXES: readonly number[] = [${flat(boxes.legs.boxes)}];`,
+    `/** The cockpit's (Cobj ${boxes.cockpit.cobj}) box, frame f at X1_BOX_WORDS * f; ${boxes.cockpit.frames} frames. */`,
+    `export const X1_COCKPIT_BOXES: readonly number[] = [${flat(boxes.cockpit.boxes)}];`,
+    "/** The legs' model point 0 (3DHS channel 0), frame f at 3 * f: the partner's position. */",
+    `export const X1_LEGS_POINT0: readonly number[] = [${flat(point0)}];`,
+    "",
+  ].join("\n");
+}
+
+/** A Cobj's 3DBB table, one box a frame (obj_mesh.parse_3dbb_table). */
+function readBoxes(blob: Uint8Array): { perFrame: number; boxes: number[][] } {
+  const view = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
+  let pos = 0;
+  while (pos + 8 <= blob.length) {
+    const tag = tagAt(blob, pos).split("").reverse().join("");
+    const size = view.getUint32(pos + 4, true);
+    if (size < 8 || pos + size > blob.length) break;
+    if (tag === "3DBB") {
+      const perFrame = view.getUint32(pos + 8, true);
+      const total = view.getUint32(pos + 12, true);
+      const boxes: number[][] = [];
+      for (let at = pos + 16; at + 16 <= pos + size; at += 16) {
+        const row: number[] = [];
+        for (let k = 0; k < 8; k++) row.push(view.getInt16(at + 2 * k, true));
+        boxes.push(row);
+      }
+      if (boxes.length !== total) throw new Error(`3DBB holds ${boxes.length} of ${total} boxes`);
+      return { perFrame, boxes };
+    }
+    pos += size;
+  }
+  throw new Error("no 3DBB chunk");
 }
 
 /** The table as the formatter writes it, so a re-run and `--check` agree with lint. */
@@ -977,6 +1131,26 @@ function importRaws(reRepo: string): void {
     const { count, xyz } = readChannels(blob, part.anim_frames);
     sets[role] = { cobj, sha256: sha, count, frames: part.anim_frames, xyz };
   }
+  const boxSets: Record<string, BoxSet> = {};
+  for (const role of CHANNEL_PARTS) {
+    const s = sets[role];
+    const { perFrame, boxes } = readBoxes(containerResource(container, "Cobj", s.cobj));
+    if (perFrame !== 1 || boxes.length !== s.frames)
+      throw new Error(`Mp Cobj ${s.cobj}: ${perFrame} boxes a frame over ${boxes.length}`);
+    boxSets[role] = { cobj: s.cobj, sha256: s.sha256, frames: s.frames, boxes };
+  }
+  const boxLines = [
+    "{",
+    `  "source": ${JSON.stringify("fixtures/missions/Mp, Cobj 15 (legs) and 16 (cockpit): the 3DBB chunk, raw int16 per frame (centre x y z, half x y z, radius +0x0c, horizontal radius +0x0e), one box a frame (RE docs/formats/objects.md 3DBB)")},`,
+    ...CHANNEL_PARTS.map((role, i) => {
+      const b = boxSets[role];
+      const rows = b.boxes.map((r) => `[${r.join(", ")}]`).join(", ");
+      return `  "${role}": { "cobj": ${b.cobj}, "sha256": "${b.sha256}", "frames": ${b.frames}, "boxes": [${rows}] }${i + 1 < CHANNEL_PARTS.length ? "," : ""}`;
+    }),
+    "}",
+    "",
+  ];
+  writeFileSync(join(X1_RAW_DIR, "boxes.json"), boxLines.join("\n"));
   const channels: Channels = {
     source:
       "fixtures/missions/Mp, Cobj 15 (legs) and 16 (cockpit): the 3DHS chunk, raw int16 (x, y, z) per record; channel i of frame f is record count * f + i (RE tools/gfx/extract_x1.py position_channels)",
@@ -1045,6 +1219,7 @@ async function main(): Promise<void> {
     [X1_OUT_BIN, built.bin],
     [X1_OUT_TS, built.ts],
     [X1_OUT_SIM_TS, built.simTs],
+    [X1_OUT_SHAPES_TS, built.shapesTs],
   ];
   if (check) {
     const stale = outputs.filter(([p, b]) => !same(p, b)).map(([p]) => p);
@@ -1058,7 +1233,7 @@ async function main(): Promise<void> {
   for (const [p, b] of outputs) writeFileSync(p, b);
   console.log(
     `gen:x1: avatar-x1.glb ${(built.glb.byteLength / 1024).toFixed(0)} KB, ` +
-      `avatar-x1.anim.bin ${(built.bin.byteLength / 1024).toFixed(0)} KB, x1Rig.generated.ts, x1Tracks.generated.ts`,
+      `avatar-x1.anim.bin ${(built.bin.byteLength / 1024).toFixed(0)} KB, x1Rig.generated.ts, x1Tracks.generated.ts, x1Shapes.generated.ts`,
   );
 }
 

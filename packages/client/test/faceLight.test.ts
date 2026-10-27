@@ -9,12 +9,15 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import * as THREE from "three";
 import {
+  addHitTint,
   FCOP_LIGHT,
   type FcopModel,
   faceMaterials,
   facePassOf,
+  fcopHitFactor,
   fcopLightFactor,
   fcopShadeByte,
+  HIT_ATTRIBUTE,
   LIGHT_ATTRIBUTE,
   materialList,
 } from "../src/render/fcopModel";
@@ -156,6 +159,48 @@ describe("a model that carries _FCOP_LIGHT", () => {
   });
 });
 
+describe("the damaged arms (0x00428ff0)", () => {
+  const out: [number, number, number] = [0, 0, 0];
+  const d = (c: number) => Math.min(2 * c, 0xff) / 0xff;
+
+  test("a grey goes out red: (g, g >> 1, g >> 1), a colour, doubled", () => {
+    // Material 0 at 0x80 (unity undamaged): r full, g and b at 0x40 doubled.
+    expect(fcopHitFactor([0, 0x80, 0x80, 0x80], 4096, out)).toEqual([1, d(0x40), d(0x40)]);
+    // Material 2 and 4 shade first (0x20 + 0x80 at full light).
+    expect(fcopHitFactor([4, 0x80, 0x80, 0x80], 4096, out)).toEqual([1, d(0x50), d(0x50)]);
+    expect(fcopHitFactor([2, 0x80, 0x80, 0x80], -1, out)).toEqual([d(0x20), d(0x10), d(0x10)]);
+  });
+
+  test("a colour keeps its red and halves its green and blue; a lit one has no blue", () => {
+    expect(fcopHitFactor([1, 0x40, 0x41, 0x7f], 0, out)).toEqual([d(0x40), d(0x20), d(0x3f)]);
+    expect(fcopHitFactor([5, 0x40, 0x40, 0x4c], 4096, out)).toEqual([d(0x60), d(0x30), 0]);
+  });
+
+  test("an add face's tint halves its green and blue, doubled unclamped", () => {
+    const c = addHitTint([0x80, 0x80, 0x81], new THREE.Color());
+    expect([c.r, c.g, c.b]).toEqual([256 / 255, 128 / 255, 128 / 255]);
+  });
+
+  test("a material made with `hit` reads the instance's flag, a plain one does not", () => {
+    const list = materialList(faceMaterials(litModel(), { hit: true }));
+    for (const m of list.slice(0, 3)) {
+      const { vertex } = patched(m);
+      expect(vertex).toContain(`attribute float ${HIT_ATTRIBUTE};`);
+      expect(vertex).toContain(`if ( ${HIT_ATTRIBUTE} > 0.5 && fcopMaterial < 6.5 )`);
+      expect((m as unknown as { defines: Record<string, string> }).defines.FCOP_HIT).toBe("");
+    }
+    const add = patched(list[3]);
+    expect(add.vertex).toContain(`vFcopHit = ${HIT_ATTRIBUTE};`);
+    expect(add.fragment).toContain("vFcopHit > 0.5 ? fcopHitTint : diffuse");
+    const plain = materialList(faceMaterials(litModel()));
+    for (const m of plain) {
+      expect((m as unknown as { defines?: Record<string, string> }).defines?.FCOP_HIT).toBe(
+        undefined,
+      );
+    }
+  });
+});
+
 function glbs(dir: string): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
@@ -185,8 +230,9 @@ function gltfOf(path: string): Gltf {
 describe("every FCOP model the client draws carries the light's inputs", () => {
   const files = ["units", "props", "fx", "pa-props"]
     .flatMap((d) => glbs(join(MODELS, d)))
-    // The X1 still comes through the RE's old path (fcop-fidelity.md G13).
-    .filter((f) => !/avatar-/.test(f));
+    // The greybox fallbacks keep their raws from before the modes; the X1
+    // itself (avatar-x1, gen:x1) carries the light since RE M3-OZ.
+    .filter((f) => !/avatar-(walker|hover)/.test(f));
 
   test("the models are there", () => {
     expect(files.length).toBeGreaterThan(200);

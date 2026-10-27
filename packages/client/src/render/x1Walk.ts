@@ -13,6 +13,8 @@
 // which turns the cockpit on its mount and moves nothing in the sim.
 
 import {
+  AVATAR_SNAP_AIM_PITCH,
+  AVATAR_SNAP_AIM_YAW,
   AVATAR_SNAP_COCKPIT_FRAME,
   AVATAR_SNAP_COCKPIT_TRACK,
   AVATAR_SNAP_CODE_COUNT,
@@ -87,8 +89,8 @@ export function createX1Walk(slots = MAX_PLAYERS): X1Walk {
 /**
  * One sim tick for every slot, off the avatar snapshot (sim avatarSnapshot.ts):
  * the sim's frames, form, state and codes. Call once after each sim step; it
- * allocates nothing. A new X1 in a slot (a spawn or a respawn) starts its aim
- * straight ahead.
+ * allocates nothing. The cockpit's aim is the sim's (a new X1 in a slot starts
+ * it straight ahead there).
  */
 export function tickX1Walk(w: X1Walk, snap: Float32Array): void {
   const slots = w.owner.length;
@@ -100,11 +102,10 @@ export function tickX1Walk(w: X1Walk, snap: Float32Array): void {
       w.owner[s] = -1;
       continue;
     }
-    if (w.owner[s] !== id) {
-      w.owner[s] = id;
-      w.aimYaw[s] = 0;
-      w.aimPitch[s] = 0;
-    }
+    w.owner[s] = id;
+    // The cockpit's aim, the sim's (orient.ts CockpitAim).
+    w.aimYaw[s] = snap[o + AVATAR_SNAP_AIM_YAW];
+    w.aimPitch[s] = snap[o + AVATAR_SNAP_AIM_PITCH];
     w.form[s] = snap[o + AVATAR_SNAP_FORM];
     w.legsFrame[s] = snap[o + AVATAR_SNAP_LEGS_FRAME];
     w.cockpitFrame[s] = snap[o + AVATAR_SNAP_COCKPIT_FRAME];
@@ -141,55 +142,13 @@ export function x1DrawForm(w: X1Walk, s: number): number {
   return moving * hover;
 }
 
-// --- the cockpit's aim (player_partner_tick, player.c 1611-1690) -----------------
+// --- the cockpit's aim -------------------------------------------------------
+//
+// The sim steps it (orient.ts systemCockpitAim, `player_partner_tick`
+// 0x004470d0) and the avatar snapshot carries it; tickX1Walk copies it here.
 
-/** A step of the aim a partner tick (PLAYER_AIM_STEP) and its limits, 4096 a turn. */
-export const AIM_STEP = 0x18;
-export const AIM_PITCH_LIMIT = 0x190;
-export const AIM_YAW_LIMIT = 0x80;
 const TAU = Math.PI * 2;
 const TURN = 4096;
-
-/** `aim_step`: toward `target`, at most AIM_STEP a tick. */
-function aimStep(current: number, target: number): number {
-  // At most AIM_STEP either way, onto the target within it; a clamp rather
-  // than branches, for the reason aimX1 gives.
-  return current + Math.max(-AIM_STEP, Math.min(AIM_STEP, target - current));
-}
-
-/**
- * One partner tick of the cockpit's aim for slot `s`: toward the lock, if
- * `locked`, at (dx, dy) on the ground and dz up from the cockpit's mount, the
- * hull facing `yaw` (sim radians); back to straight ahead without one. The
- * pitch is minus the elevation (a target above pitches the cockpit up), the yaw
- * the bearing off the facing, each clamped and stepped AIM_STEP a tick.
- */
-export function aimX1(
-  w: X1Walk,
-  s: number,
-  locked: boolean,
-  dx: number,
-  dy: number,
-  dz: number,
-  yaw: number,
-): void {
-  // Every operation on every call, the lock picking the result at the end:
-  // an operation behind `if (locked)` has no type feedback while nothing is
-  // locked, and the frame loop, optimised before the first lock, deopts on it
-  // and comes back allocating (x1Alloc.test.ts). With nothing locked the
-  // callers pass zeros, whose angles are 0.
-  // `(-math_angle_of(horizontal, dy)) >> 12`: the negated angle rounded down.
-  const rawPitch = Math.floor((-Math.atan2(dz, Math.sqrt(dx * dx + dy * dy)) * TURN) / TAU);
-  // The bearing less the facing, to the nearest turn (above 0x800 loses one).
-  const bearing = Math.floor(((Math.atan2(dy, dx) - yaw) * TURN) / TAU) & 0xfff;
-  const rawTurn = bearing - (bearing > 0x800 ? 0x1000 : 0);
-  const clampedPitch = Math.max(-AIM_PITCH_LIMIT, Math.min(AIM_PITCH_LIMIT, rawPitch));
-  const clampedTurn = Math.max(-AIM_YAW_LIMIT, Math.min(AIM_YAW_LIMIT, rawTurn));
-  const pitch = locked ? clampedPitch : 0;
-  const turn = locked ? clampedTurn : 0;
-  w.aimPitch[s] = aimStep(w.aimPitch[s], pitch);
-  w.aimYaw[s] = aimStep(w.aimYaw[s], turn);
-}
 
 /**
  * The aim as the model-space turns render/x1Pose.ts applies: the yaw about +y

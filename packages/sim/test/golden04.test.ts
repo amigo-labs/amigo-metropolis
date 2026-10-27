@@ -56,7 +56,37 @@
 // twice, and the captain's tanks breach the player's gate at tick 3657 (122 s).
 // Since SIM_VERSION 104 the jets dwell in ENGAGE and CRUISE as the original's
 // (gun silent in CRUISE): the same ten tanks, the jet and the claim, the
-// player down once; no breach.
+// player down once; no breach. Since SIM_VERSION 107 a neutral turret is
+// captured only by a body the broad phase pairs with it (one 4 m cell apart at
+// most), and team turrets fire on the other side's turrets: the same ten tanks,
+// the jet and the claim; the player shoots the captain down (90 s), goes down
+// once (94 s), and the captain's tanks breach its gate at tick 3146 (105 s), so
+// the captain wins.
+// Integrated on top of SIM_VERSION 105-106 (the sustained weapons, the guns'
+// pitch): twenty tanks and the jet, no claim; the player shoots the captain
+// down twice and goes down once; no breach. Since SIM_VERSION 110 the aircraft
+// fly the original's altitude (the captain about 1.3 m over the coarse
+// envelope, its jets launched from the ground), a downed one tumbles before it
+// dies, and the captain's spending reads the count words: sixteen tanks and
+// three jets, no claim; the player shoots the captain down once (it dies where
+// its crash lands) and goes down once; no breach. Since SIM_VERSION 111 the
+// tanks walk the original's route cursor (a leg ahead, the corners cut, the
+// original's occupancy; fcop-fidelity.md U1): seven tanks and three jets, the
+// claim; the captain is not shot down, the player goes down once; no breach.
+// Since SIM_VERSION 112 a round meets a body by the original's pair test (its
+// own model's hit boxes against the body's, the mech's legs and cockpit by
+// frame): the same seven tanks, three jets and claim, the player shoots the
+// captain down once and goes down once; no breach. Since SIM_VERSION 114 the
+// bodies turn by their matrices (the captain banks and pitches with its up
+// row, the tanks stand at their cursor's height on their hull's slope): the
+// same seven tanks, three jets and claim, the captain is not shot down, the
+// player goes down once; no breach. Since SIM_VERSION 115 a tank's round
+// leaves from its model's point 0 through its hull's matrix: thirteen tanks,
+// three jets and the claim, the captain is not shot down, the player goes down
+// twice; no breach. Since SIM_VERSION 116 the aircraft fire from their model's
+// points (the captain's gun and missile alternating between two): seven tanks,
+// three jets and the claim, the captain not shot down, the player down twice;
+// no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -114,11 +144,11 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    expect(bought.get(ARCHETYPE.RUNNER)).toBe(10);
-    expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
+    expect(bought.get(ARCHETYPE.RUNNER)).toBe(7);
+    expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(3);
     expect(claims).toBe(1);
     expect(wardenDeaths).toBe(0);
-    expect(avatarDeaths).toBe(1);
+    expect(avatarDeaths).toBe(2);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);
     expect(sim.winner).toBe(-1);
