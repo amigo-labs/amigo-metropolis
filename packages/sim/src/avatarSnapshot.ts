@@ -14,7 +14,7 @@ import type { SimState } from "./sim";
 /** Length of the codes block at AVATAR_SNAP_CODES. */
 export const AVATAR_SNAP_CODE_SLOTS = WALK_CODES_PER_TICK;
 /** Floats per player slot. */
-export const AVATAR_SNAP_STRIDE = 27 + AVATAR_SNAP_CODE_SLOTS;
+export const AVATAR_SNAP_STRIDE = 29 + AVATAR_SNAP_CODE_SLOTS;
 /** Length of the buffer writeAvatarSnapshot fills. */
 export const AVATAR_SNAPSHOT_LEN = MAX_PLAYERS * AVATAR_SNAP_STRIDE;
 /** The slot's X1 entity id, -1 while it is down -- and always for the Warden's slot. */
@@ -77,6 +77,12 @@ export const AVATAR_SNAP_SHIELD_RADIUS = 25 + AVATAR_SNAP_CODE_SLOTS;
 export const AVATAR_SNAP_SHIELD_FLAGS = 26 + AVATAR_SNAP_CODE_SLOTS;
 export const SHIELD_SNAP_WHOLE = 1;
 export const SHIELD_SNAP_FLASH = 2;
+/**
+ * The cockpit's aim (orient.ts CockpitAim), 4096 a turn, the original's sign:
+ * the yaw off the facing and the pitch (a target above pitches it negative).
+ */
+export const AVATAR_SNAP_AIM_YAW = 27 + AVATAR_SNAP_CODE_SLOTS;
+export const AVATAR_SNAP_AIM_PITCH = 28 + AVATAR_SNAP_CODE_SLOTS;
 
 /** Writes every player slot into `out` (length AVATAR_SNAPSHOT_LEN). */
 export function writeAvatarSnapshot(state: SimState, out: Float32Array): void {
@@ -126,5 +132,7 @@ export function writeAvatarSnapshot(state: SimState, out: Float32Array): void {
       ? ((sh.flags[p] & 4) !== 0 ? SHIELD_SNAP_WHOLE : 0) |
         (sh.flash[p] > 0 ? SHIELD_SNAP_FLASH : 0)
       : 0;
+    out[o + AVATAR_SNAP_AIM_YAW] = state.cockpitAim.yaw[p];
+    out[o + AVATAR_SNAP_AIM_PITCH] = state.cockpitAim.pitch[p];
   }
 }

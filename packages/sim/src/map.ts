@@ -555,7 +555,29 @@ export interface MapLaneGraph {
    * original compares node indices within one net (route.ts localNode).
    */
   readonly netStart: readonly number[];
+  /** The tank's route block (MapRouteParams): its spawner records'. */
+  readonly runnerRoute: MapRouteParams;
+  /** The Dreadnought's (type 28's). */
+  readonly juggernautRoute: MapRouteParams;
 }
+
+/**
+ * A route follower's parameter block as `cnet_route_init` (0x004415f0) copies
+ * it in from the record's payload +0x30 (fcop-fidelity.md U1, I6), raw: the
+ * flag word's low halfword -- 0 the tank, 0x20 (`CNET_ROUTE_BANK`) Hk's, 0x8
+ * the Dreadnought; neither 0x100 (`CNET_ROUTE_NO_PITCH`) nor 0x200
+ * (`CNET_ROUTE_ON_GROUND`) on any Precinct Assault record -- and the height
+ * bias, which the tick adds `<< 4` world units over the road (0x00440672):
+ * 307 the tank (Hk 102, Joke 20), 204 the Dreadnought (Joke 20).
+ */
+export interface MapRouteParams {
+  readonly flags: number;
+  readonly bias: number;
+}
+
+/** A road graph without imported records: no flag, no bias (the Dreadnought's 0x8 kept). */
+export const DEFAULT_RUNNER_ROUTE: MapRouteParams = { flags: 0, bias: 0 };
+export const DEFAULT_JUGGERNAUT_ROUTE: MapRouteParams = { flags: 0x8, bias: 0 };
 
 /** A power-up spot (original ItemPickup, act_type 16). */
 export interface MapPickup {
@@ -1236,6 +1258,11 @@ export interface MapJson {
     closed?: number[];
     /** OPTIONAL first node of each imported net (MapLaneGraph.netStart); absent -> [0]. */
     netStart?: number[];
+    /**
+     * OPTIONAL route blocks (MapLaneGraph.runnerRoute / juggernautRoute), each
+     * `[flags, bias]` raw; absent -> DEFAULT_RUNNER_ROUTE / DEFAULT_JUGGERNAUT_ROUTE.
+     */
+    routes?: { runner: number[]; juggernaut: number[] };
   };
   /** OPTIONAL box, lift, model and spin per pickup (MapPickup); absent -> Mp's box, no model. */
   pickups?: {
@@ -2373,6 +2400,23 @@ export function loadMapFromJson(raw: MapJson): MapData {
         fail(id, `laneGraph netStart ${netStart[k]} out of order`);
       }
     }
+    const route = (v: number[] | undefined, fallback: MapRouteParams, what: string) => {
+      if (v === undefined) return fallback;
+      if (!Array.isArray(v) || v.length !== 2)
+        fail(id, `laneGraph ${what} route is not [flags, bias]`);
+      const [flags, bias] = v;
+      if (!Number.isInteger(flags) || flags < 0 || flags > 0xffff)
+        fail(id, `laneGraph ${what} route flags ${flags} are not a halfword`);
+      // The port (route.ts) reaches the arms 0x8 (no traffic, no contact
+      // transfer: the Dreadnought's) and 0x20 (the bank) take, and no other:
+      // a record with 0x100 or 0x200 would need `cnet_route_orient`'s other
+      // arms, with 0x10 the rise, and so on. No Precinct Assault record has one.
+      if ((flags & ~0x28) !== 0)
+        fail(id, `laneGraph ${what} route flags 0x${flags.toString(16)} take arms not modelled`);
+      if (!Number.isInteger(bias) || bias < -0x8000 || bias > 0x7fff)
+        fail(id, `laneGraph ${what} route bias ${bias} is not a halfword`);
+      return { flags, bias };
+    };
     laneGraph = {
       nodes,
       edges,
@@ -2383,6 +2427,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
       heights,
       closed,
       netStart: [...netStart],
+      runnerRoute: route(g.routes?.runner, DEFAULT_RUNNER_ROUTE, "runner"),
+      juggernautRoute: route(g.routes?.juggernaut, DEFAULT_JUGGERNAUT_ROUTE, "juggernaut"),
     };
   }
 

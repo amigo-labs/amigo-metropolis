@@ -548,6 +548,15 @@ export interface AirState {
   readonly vy: Int32Array;
   readonly vz: Int32Array;
   readonly upY: Int32Array;
+  /**
+   * The model matrix's up row (row 1), 16.16, in the heading's axes: what
+   * `math_matrix_from_forward_up` (0x0043fbc0) last built, `forward x
+   * normalise(up x forward)`; the tumble's next up reference (0x00420ee3).
+   * `upY` is its |y|.
+   */
+  readonly ux: Int32Array;
+  readonly uy: Int32Array;
+  readonly uz: Int32Array;
   readonly phase: Uint8Array;
 }
 
@@ -563,6 +572,9 @@ export function createAirState(cap: number = MAX_ENTITIES): AirState {
     vy: new Int32Array(cap),
     vz: new Int32Array(cap),
     upY: new Int32Array(cap),
+    ux: new Int32Array(cap),
+    uy: new Int32Array(cap).fill(AIRCRAFT_HEADING_ONE),
+    uz: new Int32Array(cap),
     phase: new Uint8Array(cap),
   };
 }
@@ -715,11 +727,46 @@ export function flyHeading(dx: number, dz: number, vcmd: number, turn: number): 
   }
 }
 
+/** Scratch: the up row upRow last built (module scope, no allocation per tick). */
+export const upScratch = { x: 0, y: 0, z: 0 };
+
 /**
- * The up row's |Y| of the rotation `math_matrix_from_forward_up` (0x0043fbc0)
- * builds from the heading and the up vector `steer + (0, 0x2000, 0)`
- * (0x00420c61): the up vector's part across the heading, normalised — so the
- * bank of a turn and the pitch together. 16.16; 1.0 for a degenerate up.
+ * Row 1 of the rotation `math_matrix_from_forward_up` (0x0043fbc0) builds from
+ * the heading (hx, hy, hz) and the up reference (ux, uy, uz), 16.16, into
+ * upScratch: `forward x normalise(up x forward)`, which for a unit forward is
+ * the up reference's part across the heading, normalised -- the bank of a turn
+ * and the pitch together. (0, 1.0, 0) for a degenerate up.
+ */
+export function upRow(
+  hx: number,
+  hy: number,
+  hz: number,
+  ux: number,
+  uy: number,
+  uz: number,
+): void {
+  const fx = hx / AIRCRAFT_HEADING_ONE;
+  const fy = hy / AIRCRAFT_HEADING_ONE;
+  const fz = hz / AIRCRAFT_HEADING_ONE;
+  const d = ux * fx + uy * fy + uz * fz;
+  const px = ux - fx * d;
+  const py = uy - fy * d;
+  const pz = uz - fz * d;
+  const l = Math.sqrt(px * px + py * py + pz * pz);
+  if (!(l > 0)) {
+    upScratch.x = 0;
+    upScratch.y = AIRCRAFT_HEADING_ONE;
+    upScratch.z = 0;
+    return;
+  }
+  upScratch.x = Math.floor((px * AIRCRAFT_HEADING_ONE) / l);
+  upScratch.y = Math.floor((py * AIRCRAFT_HEADING_ONE) / l);
+  upScratch.z = Math.floor((pz * AIRCRAFT_HEADING_ONE) / l);
+}
+
+/**
+ * The up row's |Y| of the rotation built from the heading and the up vector
+ * `steer + (0, 0x2000, 0)` (0x00420c61): upRow's y, made positive. 16.16.
  */
 export function upRowY(
   hx: number,
@@ -729,20 +776,25 @@ export function upRowY(
   sy: number,
   sz: number,
 ): number {
-  const ux = sx;
-  const uy = sy + AIRCRAFT_UP_BIAS;
-  const uz = sz;
-  const fx = hx / AIRCRAFT_HEADING_ONE;
-  const fy = hy / AIRCRAFT_HEADING_ONE;
-  const fz = hz / AIRCRAFT_HEADING_ONE;
-  const d = ux * fx + uy * fy + uz * fz;
-  const px = ux - fx * d;
-  const py = uy - fy * d;
-  const pz = uz - fz * d;
-  const l = Math.sqrt(px * px + py * py + pz * pz);
-  if (!(l > 0)) return AIRCRAFT_HEADING_ONE;
-  const y = Math.floor((py * AIRCRAFT_HEADING_ONE) / l);
+  upRow(hx, hy, hz, sx, sy + AIRCRAFT_UP_BIAS, sz);
+  const y = upScratch.y;
   return y < 0 ? -y : y;
+}
+
+/** Stores aircraft `id`'s rotation's up row from upScratch, and its |y|. */
+function storeUp(air: AirState, id: number): void {
+  air.ux[id] = upScratch.x;
+  air.uy[id] = upScratch.y;
+  air.uz[id] = upScratch.z;
+  air.upY[id] = upScratch.y < 0 ? -upScratch.y : upScratch.y;
+}
+
+/** A level aircraft's up row (`math_matrix_from_forward`, 0x0043fc60): world up. */
+export function levelUp(air: AirState, id: number): void {
+  air.ux[id] = 0;
+  air.uy[id] = AIRCRAFT_HEADING_ONE;
+  air.uz[id] = 0;
+  air.upY[id] = AIRCRAFT_HEADING_ONE;
 }
 
 /**
@@ -818,7 +870,9 @@ export function aircraftFly(
   air.sx[id] = s.sx;
   air.sy[id] = s.sy;
   air.sz[id] = s.sz;
-  air.upY[id] = upRowY(s.hx, s.hy, s.hz, s.sx, s.sy, s.sz);
+  // 0x00420c61..0x00420c81: the rotation from the heading and the steer's up.
+  upRow(s.hx, s.hy, s.hz, s.sx, s.sy + AIRCRAFT_UP_BIAS, s.sz);
+  storeUp(air, id);
 }
 
 /**
@@ -837,7 +891,10 @@ export function aircraftClimb(
   ent.height[id] = yw / WU_PER_METRE;
   ent.velX[id] = 0;
   ent.velY[id] = 0;
-  state.air.upY[id] = AIRCRAFT_HEADING_ONE;
+  // 0x004208b9: the rotation from the heading and world up.
+  const air = state.air;
+  upRow(air.hx[id], air.hy[id], air.hz[id], 0, AIRCRAFT_HEADING_ONE, 0);
+  storeUp(air, id);
   ent.animState[id] = ANIM_MOVING;
   return yw - (f.halfY << 4) - envelopeWu(state, ent.posX[id], ent.posY[id]) > f.altCruise << 4;
 }
@@ -912,6 +969,10 @@ export function aircraftTumble(state: SimState, id: number): boolean {
     air.hz[id] = Math.floor((vz * AIRCRAFT_HEADING_ONE) / l);
   }
   if (vx !== 0 || vz !== 0) ent.yaw[id] = atan2Poly(vz, vx);
+  // 0x00420ee3..0x00420f28: the rotation from the heading and the last up row
+  // biased toward world up, so the tumble turns the body on from where it was.
+  upRow(air.hx[id], air.hy[id], air.hz[id], air.ux[id], air.uy[id] + AIRCRAFT_UP_BIAS, air.uz[id]);
+  storeUp(air, id);
   return false;
 }
 
@@ -950,7 +1011,7 @@ export function placeAircraft(
   air.hx[id] = Math.floor(cosLUT(yaw) * AIRCRAFT_HEADING_ONE);
   air.hy[id] = 0;
   air.hz[id] = Math.floor(sinLUT(yaw) * AIRCRAFT_HEADING_ONE);
-  air.upY[id] = AIRCRAFT_HEADING_ONE;
+  levelUp(air, id);
   air.phase[id] = climb ? AIR_CLIMB : AIR_FLY;
   ent.yaw[id] = yaw;
   ent.velX[id] = 0;

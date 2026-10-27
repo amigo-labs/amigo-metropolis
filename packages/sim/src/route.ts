@@ -44,13 +44,30 @@
 // and x). A node unit is 1/32 m (256 world units); positions are world units,
 // 8192 to the metre.
 //
+// And what the actor makes of the cursor:
+//
+// * The cursor's own height (SIM_VERSION 114): the follower stands on the leg
+//   between the nodes' heights plus the record's height bias `<< 4` (the
+//   tick's 0x004405f4..0x00440672), the corner cut on all three axes
+//   (0x00441410..0x0044144a), not on the sim surface; a halted follower sinks
+//   to the highest ground plus its box's lower half (`cnet_route_vertical`
+//   0x004414b0's descent).
+// * The hull's orientation (SIM_VERSION 114): `cnet_route_orient` (0x00424bc0)
+//   takes its fourth arm on every Precinct Assault record -- neither 0x200
+//   (CNET_ROUTE_ON_GROUND, the surface normal's arm) nor 0x100
+//   (CNET_ROUTE_NO_PITCH) is set (map.ts MapRouteParams) -- so the matrix is
+//   `math_matrix_from_angles(yaw, pitch, bank)` of the cursor's channels
+//   (0x00424ced), rebuilt only on a tick whose step answers bit 1 (the corner
+//   window, a leg planned on arrival; `cact_pathed_move` 0x00424e1e). It is
+//   kept apart (`hullYaw`, `hullPitch`, `hullBank`) from the entity's yaw,
+//   which is the cursor's own yaw every tick, as the mount reads it
+//   (`word_12a`, mount.c 0x004259c9).
+// * The bank (Hk's tanks, CNET_ROUTE_BANK 0x20): the peak `-3/8` of the
+//   corner's yaw delta times the speed's share of the top (`cnet_route_plan_leg`
+//   0x00440be6..0x00440c90), tapered linearly across the window
+//   (`cnet_route_corner_blend` 0x00441296), zeroed past it (0x004406f3).
+//
 // Not modelled, and why:
-// * The cursor's height (the leg's own y plus the height bias): the sim's
-//   ground units stand on the sim surface (snapUnitHeight). The node heights do
-//   enter the leg lengths and the pitch channel.
-// * The pitch and the bank as drawn: the pitch channel is kept because it
-//   decides when a corner window opens; the snapshot carries yaw only. The
-//   bank (Hk's tanks, route flag 0x20) has no channel at all.
 // * The contact's hit-box confirmation (`cact_hit_boxes` 0x0044f640) on an
 //   arena without imported models: there a contact is the sphere overlap
 //   (`cact_pair_test` 0x00450190, gap < 0). Where the models are imported the
@@ -82,10 +99,10 @@ import {
   WU_PER_METRE,
 } from "./balance";
 import { bodiesContact } from "./contact";
-import { type MapData, type MapLaneGraph, resolveHeight } from "./map";
+import { type MapData, type MapLaneGraph, type MapRouteParams, SHAPE_WORDS } from "./map";
 import { ANIM_MOVING, entityRadius, entityRefHeight, type SimState, toldFirst } from "./sim";
 import { octagonalLength, randInt, TAU } from "./simMath";
-import { isGroundUnit, snapUnitHeight } from "./units";
+import { isGroundUnit, resolveWalker, surfaceBelow } from "./units";
 
 // ---------------------------------------------------------------------------
 // The engine's fixed-point arithmetic (RE fcop/math.h, game/math/angle.c)
@@ -204,6 +221,9 @@ function radians(angle12: number): number {
 const AHEAD = 1; // CNET_ROUTE_CORNER_AHEAD: the corner fields are filled, not yet reached
 const PASSED = 2; // CNET_ROUTE_CORNER_PASSED: past the waypoint, inside the window
 const HALTED = 4; // CNET_ROUTE_HALTED: the chooser refused on arrival
+const GROUNDED = 8; // CNET_ROUTE_NO_HEIGHT_BIAS, set by the halted descent's landing
+/** CNET_ROUTE_BANK: the bank channel (Hk's tanks). */
+const ROUTE_FLAG_BANK = 0x20;
 
 /**
  * Every route follower's cursor (the original's 0x7c-byte block at a pathed
@@ -248,7 +268,18 @@ export interface RouteCursors {
   readonly velocity: Int32Array;
   /** The node after the one walked to: -1 not chosen yet, -2 refused. */
   readonly next: Int16Array;
-  /** AHEAD | PASSED | HALTED. */
+  /** The roll at the apex of the corner and the roll now, 12-bit (BANK only). */
+  readonly bankPeak: Int16Array;
+  readonly bank: Int16Array;
+  /**
+   * The actor's matrix (`cnet_route_orient`'s fourth arm): the yaw, pitch and
+   * bank it was last built from, 12-bit. The drawn hull, its colliders and its
+   * mounts stand on it; the entity's yaw is the cursor's.
+   */
+  readonly hullYaw: Int16Array;
+  readonly hullPitch: Int16Array;
+  readonly hullBank: Int16Array;
+  /** AHEAD | PASSED | HALTED | GROUNDED. */
   readonly phase: Uint8Array;
   /**
    * Per node: the occupancy nibble (node +4, 0..15), how many followers have
@@ -284,6 +315,11 @@ export function createRouteCursors(map: MapData): RouteCursors {
     hold: new Int16Array(n),
     velocity: new Int32Array(n),
     next: new Int16Array(n),
+    bankPeak: new Int16Array(n),
+    bank: new Int16Array(n),
+    hullYaw: new Int16Array(n),
+    hullPitch: new Int16Array(n),
+    hullBank: new Int16Array(n),
     phase: new Uint8Array(n),
     occupancy: new Uint8Array(nodes),
   };
@@ -312,6 +348,31 @@ function localNode(g: MapLaneGraph, node: number): number {
 /** True when ground units on this map follow the original's routes (rules.md §9). */
 export function followsRoutes(state: SimState): boolean {
   return state.map.laneGraph !== undefined;
+}
+
+/** The route block `id` runs on: its record's (map.ts MapRouteParams). */
+function paramsOf(state: SimState, id: number): MapRouteParams {
+  const g = state.map.laneGraph as MapLaneGraph;
+  return state.ent.archetype[id] === ARCHETYPE.JUGGERNAUT ? g.juggernautRoute : g.runnerRoute;
+}
+
+/**
+ * `cnet_route_orient` (0x00424bc0) on a Precinct Assault record: neither
+ * CNET_ROUTE_ON_GROUND (0x200, `test dh, 2` at 0x00424bcf) nor
+ * CNET_ROUTE_NO_PITCH (0x100, 0x00424c82) is set (map.ts refuses both), so the
+ * fourth arm: `math_matrix_from_angles(yaw, pitch, bank)` of the cursor's
+ * channels, +0x12a, +0x130 and +0x136 (0x00424cbc..0x00424ced; the external
+ * attitude of bits 30-31 is the break-up's, which no PA record arms).
+ */
+function orient(c: RouteCursors, id: number): void {
+  c.hullYaw[id] = c.yaw[id];
+  c.hullPitch[id] = c.pitch[id];
+  c.hullBank[id] = c.bank[id];
+}
+
+/** The world units a node unit's height and the bias land on, as metres. */
+function metres(wu: number): number {
+  return wu / WU_PER_METRE;
 }
 
 /** Is `id` a route follower that has stopped for good (refused, or parked off its road)? */
@@ -495,6 +556,9 @@ export function startRoute(state: SimState, id: number): void {
   c.pitchTurn[id] = 0;
   c.cornerHalf[id] = 0;
   c.cornerRecip[id] = 0;
+  // 0x00441721..0x00441729: the hold and both bank words cleared.
+  c.bank[id] = 0;
+  c.bankPeak[id] = 0;
   let node: number;
   if (spawn >= 0) {
     ent.cooldownB[id] = spawn;
@@ -545,6 +609,12 @@ export function startRoute(state: SimState, id: number): void {
   ent.yaw[id] = radians(yaw);
   ent.velX[id] = 0;
   ent.velY[id] = 0;
+  // 0x00441899..0x004418a6: the spawn node's height plus the bias (which the
+  // construct drops only when positive with bit 4, a bit no PA record carries).
+  ent.height[id] = metres((c.legFrom[k3 + 1] << 8) + (paramsOf(state, id).bias << 4));
+  ent.entLayer[id] = resolveWalker(state.map, ent.posX[id], ent.posY[id], ent.height[id]).layer;
+  // The construct orients it from the cursor (0x00425265).
+  orient(c, id);
 }
 
 // ---------------------------------------------------------------------------
@@ -557,8 +627,11 @@ export function startRoute(state: SimState, id: number): void {
  * snaps both angle channels to the new leg; 1 (on the leg) sizes the corner
  * window, the two turns and the corner-cut offset, and marks the corner AHEAD.
  * A refusal writes only `next` (-2). Route flags 0 (the tank) and 0x8 (the
- * Dreadnought) reach only these arms; Hk's tanks' 0x20 adds the bank, which
- * Metropolis does not draw.
+ * Dreadnought) reach only these arms; Hk's tanks' 0x20 (CNET_ROUTE_BANK) adds
+ * the bank: both words cleared on every plan (0x00440a90), and on a corner
+ * with a yaw the peak, `-3/8` of the raw yaw delta wrapped and clamped to half
+ * a turn, times the speed word's share of the top, at most 1 (0x00440be6..
+ * 0x00440c90).
  */
 function planLeg(state: SimState, id: number, midLeg: boolean): void {
   const c = state.route;
@@ -586,6 +659,11 @@ function planLeg(state: SimState, id: number, midLeg: boolean): void {
   const horizontal = octagonalLength(c.nextDir[k3], c.nextDir[k3 + 2]);
   c.pitchTo[id] = -(angleOf(horizontal, c.nextDir[k3 + 1]) >> 12) & 0xfff;
   c.phase[id] &= ~(AHEAD | PASSED);
+  const bankOn = (paramsOf(state, id).flags & ROUTE_FLAG_BANK) !== 0;
+  if (bankOn) {
+    c.bank[id] = 0;
+    c.bankPeak[id] = 0;
+  }
 
   if (!midLeg) {
     c.pitchFrom[id] = c.pitchTo[id];
@@ -612,7 +690,22 @@ function planLeg(state: SimState, id: number, midLeg: boolean): void {
   if (span < 0) span = 0;
   c.cornerHalf[id] = span;
   c.cornerRecip[id] = span > 0 ? i16(reciprocalSpan(span << 8) >>> 10) : 0x7fff;
-  if (yawDelta !== 0) c.yawTurn[id] = shortest(yawDelta);
+  if (yawDelta !== 0) {
+    c.yawTurn[id] = shortest(yawDelta);
+    if (bankOn) {
+      // The raw difference, wrapped once each way and clamped to half a turn.
+      let d = c.yawTo[id] - c.yawFrom[id];
+      if (d > 0x800) d -= 0x1000;
+      else if (d < -0x800) d += 0x1000;
+      if (d < -0x800) d = -0x800;
+      else if (d > 0x800) d = 0x800;
+      // `-3d << 8` and a toward-zero `>> 11`: -3d/8, against the turn.
+      const peak = Math.trunc((-3 * d) / 8);
+      let ratio = fixDiv(c.velocity[id], ROUTE_SPEED_WORD);
+      if (ratio > 0x10000) ratio = 0x10000;
+      c.bankPeak[id] = i16(fixedMul(peak << 16, ratio) >> 16);
+    }
+  }
 
   // The corner cut: corner_half * (unit(next) - unit(leg)) / 4, node units.
   const a = fixDiv(span << 8, legLength << 8);
@@ -625,14 +718,16 @@ function planLeg(state: SimState, id: number, midLeg: boolean): void {
   c.phase[id] = (c.phase[id] & ~PASSED) | AHEAD;
 }
 
-/** The position the tick and the blend write, world units (engine x, z). */
-const at = new Int32Array(2);
+/** The position the tick and the blend write, world units (engine x, z, y). */
+const at = new Int32Array(3);
 
 /**
  * `cnet_route_corner_blend` (0x00441260), `offset` world units from the
- * waypoint (negative before it): the yaw linear across the window, the
- * position pulled inward by `corner` times the square of the window fraction
- * (added to the straight-line position the tick wrote), the pitch linear.
+ * waypoint (negative before it): the bank tapered linearly from its peak at the
+ * waypoint (0x00441296), the yaw linear across the window, the position pulled
+ * inward by `corner` times the square of the window fraction (added to the
+ * straight-line position the tick wrote, on all three axes: 0x00441410,
+ * 0x0044142d, 0x0044144a), the pitch linear.
  */
 function cornerBlend(state: SimState, id: number, offset: number): void {
   const c = state.route;
@@ -640,6 +735,10 @@ function cornerBlend(state: SimState, id: number, offset: number): void {
   const span = c.cornerHalf[id] << 8;
   const away = offset < 0 ? -offset : offset;
   const recip = c.cornerRecip[id];
+  if (c.bankPeak[id] !== 0 && (c.phase[id] & (AHEAD | PASSED)) !== 0) {
+    const taper = fixDiv(span - away, span);
+    c.bank[id] = (fixedMul(c.bankPeak[id] << 16, taper) >> 16) & 0xfff;
+  }
   if (c.yawTurn[id] !== 0) {
     const rate = Math.imul(recip << 2, c.yawTurn[id]) >> 9;
     const step = Math.imul(rate, span + offset) >> 16;
@@ -648,6 +747,7 @@ function cornerBlend(state: SimState, id: number, offset: number): void {
     const weight = Math.imul(s >> 2, s >> 2) >> 12;
     at[0] = (at[0] + fixedMul(c.corner[k3] << 8, weight)) | 0;
     at[1] = (at[1] + fixedMul(c.corner[k3 + 2] << 8, weight)) | 0;
+    at[2] = (at[2] + fixedMul(c.corner[k3 + 1] << 8, weight)) | 0;
   }
   if (c.pitchTurn[id] !== 0) {
     const u = fixedMul((span + offset) >> 1, recip << 10);
@@ -671,7 +771,18 @@ function cornerBlend(state: SimState, id: number, offset: number): void {
  * A tick that moves nothing (speed word 0), or lands exactly on a waypoint,
  * leaves the position where the last tick put it, as the original does. A
  * follower whose chooser refuses on arrival halts there for good, its speed
- * word 0 (the wrapper sends a halted cursor to the vertical mover only).
+ * word 0 (the wrapper sends a halted cursor to the vertical mover only, which
+ * lowers it to the ground: haltedDescent).
+ *
+ * The position is the cursor's on all three axes: the leg's straight line
+ * between the nodes' heights plus the bias `<< 4` (0x004405f4..0x00440672),
+ * then the corner. The hull's matrix (`hullYaw`/`hullPitch`/`hullBank`) is
+ * rebuilt only on a tick whose step answers bit 1 -- inside a corner window
+ * (0x00440716, 0x0044078b) or a leg planned on arrival (0x004403c2) --
+ * which `cact_pathed_move` (0x00424e1e) requires before it calls
+ * `cnet_route_orient`; leaving the window snaps the channels (0x004406d1..
+ * 0x004406f3) but answers bit 0 alone, so the matrix keeps the window's last
+ * blend until the next corner.
  */
 export function routeTick(state: SimState, id: number): void {
   const ent = state.ent;
@@ -683,7 +794,7 @@ export function routeTick(state: SimState, id: number): void {
     ent.velX[id] = 0;
     ent.velY[id] = 0;
     ent.animState[id] = 0;
-    snapUnitHeight(state, id, false);
+    haltedDescent(state, id);
     return;
   }
   const dt = FRAME_CLOCK_PER_TICK;
@@ -724,6 +835,8 @@ export function routeTick(state: SimState, id: number): void {
   const step = vel * dt;
 
   let write = false;
+  // Bit 1 of the step's answer: a heading or a new leg (TICK_DIRTY_HEAD).
+  let head = false;
   if (step > 0) {
     c.travelled[id] += step;
     write = true;
@@ -732,16 +845,16 @@ export function routeTick(state: SimState, id: number): void {
       if (c.next[id] < 0) {
         planLeg(state, id, false);
         if (c.next[id] < 0) {
-          // Stuck: halted where the last tick left it.
+          // Stuck: halted where the last tick left it (0x004408f9).
           c.phase[id] |= HALTED;
           c.velocity[id] = 0;
           c.travelled[id] = c.legLength[id] << 8;
           ent.velX[id] = 0;
           ent.velY[id] = 0;
           ent.animState[id] = 0;
-          snapUnitHeight(state, id, false);
           return;
         }
+        head = true;
       } else if ((c.phase[id] & (AHEAD | PASSED)) === AHEAD) {
         c.phase[id] = (c.phase[id] & ~AHEAD) | PASSED;
       }
@@ -763,12 +876,6 @@ export function routeTick(state: SimState, id: number): void {
       c.next[id] = -1;
       c.legLength[id] = c.nextLegLength[id];
       c.travelled[id] = 0;
-      const nd = g.nodes[reached];
-      if (nd.layer !== ent.entLayer[id]) {
-        // Deck roads (issue #33): the node is on the surface the road is on.
-        ent.height[id] = resolveHeight(state.map, nd.x, nd.y, nd.layer);
-        ent.entLayer[id] = nd.layer;
-      }
       if (remaining <= 0) {
         write = false; // an exact landing writes no position this tick
         break;
@@ -782,6 +889,10 @@ export function routeTick(state: SimState, id: number): void {
     const frac = fixedMul(c.travelled[id], reciprocalSpan(c.legLength[id]) | 0);
     at[0] = ((c.legFrom[k3] << 8) + fixedMul(frac, c.leg[k3])) | 0;
     at[1] = ((c.legFrom[k3 + 2] << 8) + fixedMul(frac, c.leg[k3 + 2])) | 0;
+    // The height, and the bias over it (0x00440672: no PA record sets bit 4).
+    at[2] =
+      ((c.legFrom[k3 + 1] << 8) + fixedMul(frac, c.leg[k3 + 1]) + (paramsOf(state, id).bias << 4)) |
+      0;
     const phase = c.phase[id] & (AHEAD | PASSED);
     const travelled = c.travelled[id];
     if (phase === PASSED) {
@@ -792,12 +903,18 @@ export function routeTick(state: SimState, id: number): void {
         c.pitchFrom[id] = c.pitchTo[id];
         c.pitch[id] = c.pitchTo[id];
         c.phase[id] &= ~(AHEAD | PASSED);
+        if ((paramsOf(state, id).flags & ROUTE_FLAG_BANK) !== 0) {
+          c.bank[id] = 0;
+          c.bankPeak[id] = 0;
+        }
       } else {
+        head = true;
         cornerBlend(state, id, travelled);
       }
     } else {
       const left = (c.legLength[id] << 8) - travelled;
       if (phase === AHEAD && left >> 8 < c.cornerHalf[id]) {
+        head = true;
         cornerBlend(state, id, -left);
       } else if (c.next[id] < 0) {
         planLeg(state, id, true);
@@ -805,7 +922,11 @@ export function routeTick(state: SimState, id: number): void {
     }
     ent.posX[id] = at[1] / WU_PER_METRE;
     ent.posY[id] = at[0] / WU_PER_METRE;
+    ent.height[id] = metres(at[2]);
+    // The deck it rides (issue #33): the surface under the cursor.
+    ent.entLayer[id] = resolveWalker(state.map, ent.posX[id], ent.posY[id], ent.height[id]).layer;
   }
+  if (head) orient(c, id);
 
   // A commanded speed under an eighth of the top with no hold is not kept
   // (0x004408ae; a tick that moved nothing returned before it).
@@ -818,7 +939,61 @@ export function routeTick(state: SimState, id: number): void {
   ent.velY[id] = (c.heading[k3] / 65536) * v;
   ent.yaw[id] = radians(c.yaw[id]);
   ent.animState[id] = c.velocity[id] > 0 ? ANIM_MOVING : 0;
-  snapUnitHeight(state, id, false);
+}
+
+/**
+ * The vertical mover's descent (`cnet_route_vertical` 0x004414b0, the arm at
+ * 0x0044157a), which `cnet_route_drive` (0x004400f3) runs for a halted cursor
+ * with a positive bias: the follower sinks `top_speed * dt / 2` world units a
+ * tick toward the highest ground under it (`terrain_height_at(.., -1)`,
+ * 0x00441586) plus its model's box-0 lower half, `half_y - centre_y`
+ * (0x004415a3..0x004415b0), and lands on it, the cursor's bit 4 set
+ * (0x004415cb) so it moves no more. The matrix is not rebuilt (it answers 1).
+ */
+function haltedDescent(state: SimState, id: number): void {
+  const ent = state.ent;
+  const c = state.route;
+  if ((c.phase[id] & GROUNDED) !== 0 || paramsOf(state, id).bias <= 0) return;
+  const map = state.map;
+  const top = surfaceBelow(map, ent.posX[id], ent.posY[id], Number.POSITIVE_INFINITY);
+  const ground = Math.floor((top.height + boxLower(state, id)) * WU_PER_METRE);
+  let y = Math.round(ent.height[id] * WU_PER_METRE);
+  if (y > ground) {
+    y -= (ROUTE_SPEED_WORD * FRAME_CLOCK_PER_TICK) >> 1;
+    if (y > ground) {
+      ent.height[id] = metres(y);
+      return;
+    }
+  }
+  c.phase[id] |= GROUNDED;
+  ent.height[id] = metres(ground);
+  ent.entLayer[id] = top.layer;
+}
+
+/**
+ * `half_y - centre_y` of box 0 of the follower's model at its frame, metres
+ * (`drive_box_offset`, route_drive.c): the tank's, the Dreadnought hull's at
+ * its walk's frame; 0 on an arena without imported models, as for an actor
+ * with none (0x00441591).
+ */
+function boxLower(state: SimState, id: number): number {
+  const sh = state.map.shapes;
+  const ent = state.ent;
+  let table = -1;
+  let frame = 0;
+  if (ent.archetype[id] === ARCHETYPE.JUGGERNAUT) {
+    table = sh.dreadnought;
+    const team = ent.team[id];
+    const walk = team === 0 || team === 1 ? state.hullWalk[team] : null;
+    if (walk) frame = walk.frame[id];
+  } else if (sh.tank !== null) {
+    table = sh.tank.table;
+  }
+  if (table < 0 || table >= sh.tables.length) return 0;
+  const t = sh.tables[table];
+  const f = frame >= 0 && frame < t.frames ? frame : 0;
+  const o = f * SHAPE_WORDS; // box 0's row of frame f
+  return t.boxes[o + 4] - t.boxes[o + 1];
 }
 
 /**

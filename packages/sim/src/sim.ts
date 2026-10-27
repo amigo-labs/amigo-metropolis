@@ -294,6 +294,13 @@ import {
   waterHeightAt,
   worldExtent,
 } from "./map";
+import {
+  bodyFrame,
+  type CockpitAim,
+  createCockpitAim,
+  createFrame,
+  systemCockpitAim,
+} from "./orient";
 import { createRouteCursors, type RouteCursors, releaseRoute, startRoute } from "./route";
 import {
   atan2Poly,
@@ -714,6 +721,12 @@ export interface SimState {
    * Read and hashed only on an arena with the graph.
    */
   readonly route: RouteCursors;
+  /**
+   * Each player's cockpit aim toward its lock (orient.ts CockpitAim; the
+   * original's partner, fcop-fidelity.md G1): what turns the cockpit's
+   * collider and drawing. Hashed.
+   */
+  readonly cockpitAim: CockpitAim;
   /** Player slot the Warden AI drives, -1 for a match without one (config). */
   readonly wardenPlayer: number;
   /** Warden difficulty 1–10 (config; 0 when wardenPlayer is -1). */
@@ -1228,7 +1241,9 @@ export function spawnUnit(
       ent.timerA[id] = 0;
       ent.timerB[id] = -1; // no lanes on this map: beeline the gate
     }
-    snapUnitHeight(state, id, false);
+    // A route follower stands at its cursor's height (startRoute); the rest on
+    // the surface.
+    if (graph === undefined) snapUnitHeight(state, id, false);
   } else {
     // The original's aircraft (units.ts moveAircraft): patrols its anchor, the
     // spawner it was built at (mode 0 base, 1 + k outpost k).
@@ -1307,6 +1322,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     gunTarget: new Int16Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunSearch: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     route: createRouteCursors(map),
+    cockpitAim: createCockpitAim(),
     hullWalk: map.bases.map((b) => {
       const w = b.juggernaut.walk;
       if (w === undefined) return null;
@@ -4518,36 +4534,57 @@ function armWorldRound(state: SimState, id: number, p: number, w: MapWeapon): vo
   pushEvent(state.events, EV_SHOT, id, SHOT_SLOT_LAUNCH, 0);
 }
 
-/** Scratch: a gun's mount and muzzle in the world (module scope, no allocation per tick). */
-const gunScratch = { x: 0, y: 0, h: 0, mx: 0, my: 0, mh: 0 };
+/**
+ * Scratch: a gun's mount and muzzle in the world, and its barrel's forward
+ * (module scope, no allocation per tick).
+ */
+const gunScratch = { x: 0, y: 0, h: 0, mx: 0, my: 0, mh: 0, fx: 0, fy: 0, fh: 0 };
+/** Scratch: the hull's matrix and a gun's on it. */
+const hullFrame = createFrame();
 
 /**
- * Places Juggernaut `id`'s mount `m` in the world — a hull-frame point at hull +
- * z * forward + x * (sin yaw, -cos yaw), the frame the client draws the hull's
- * glb in (`cact_model_point`, turret.c 241-335), the point of the hull's
- * `frame` where it walks (the model's 3DRF of +0x70) — and its muzzle, the gun
- * model's point 0, turned by the gun's world yaw `gunYaw`, into gunScratch.
+ * Places Juggernaut `id`'s mount `m` in the world -- a hull-frame point through
+ * the hull's matrix (`cact_model_point`, turret.c 241-335; glb x the model's
+ * negated), the point of the hull's `frame` where it walks (the model's 3DRF of
+ * +0x70) -- and its muzzle, the gun model's point 0 through the gun's matrix:
+ * `math_matrix_from_angles(gunYaw, 0, 0)` over the hull's (mount.c
+ * 0x00425b8e..0x00425bb3), `gunYaw` the mount's own, 12-bit, relative to the
+ * hull. The hull's matrix is the cursor's last orientation (route.ts orient:
+ * its yaw, pitch and bank; orient.ts bodyFrame), so a hull on a slope carries
+ * its guns tilted. Into gunScratch, with the barrel's forward (row 2).
  */
 function placeGun(
-  ent: EntityStore,
+  state: SimState,
   id: number,
   m: MapGunMount,
   frame: number,
   gunYaw: number,
 ): void {
-  const c = cosLUT(ent.yaw[id]);
-  const s = sinLUT(ent.yaw[id]);
+  const ent = state.ent;
+  const f = hullFrame;
+  bodyFrame(f, state, id);
   // The hull's point in the frame it shows (a walking hull's), else its one.
-  const f = m.frames;
-  const p = f !== undefined && frame >= 0 && frame < f.length ? f[frame] : m;
-  gunScratch.x = ent.posX[id] + p.z * c + p.x * s;
-  gunScratch.y = ent.posY[id] + p.z * s - p.x * c;
-  gunScratch.h = ent.height[id] + p.y;
-  const gc = cosLUT(gunYaw);
-  const gs = sinLUT(gunYaw);
-  gunScratch.mx = gunScratch.x + m.mz * gc + m.mx * gs;
-  gunScratch.my = gunScratch.y + m.mz * gs - m.mx * gc;
-  gunScratch.mh = gunScratch.h + m.my;
+  const fr = m.frames;
+  const p = fr !== undefined && frame >= 0 && frame < fr.length ? fr[frame] : m;
+  gunScratch.x = ent.posX[id] - p.x * f.ax[0] + p.y * f.ay[0] + p.z * f.az[0];
+  gunScratch.y = ent.posY[id] - p.x * f.ax[1] + p.y * f.ay[1] + p.z * f.az[1];
+  gunScratch.h = ent.height[id] - p.x * f.ax[2] + p.y * f.ay[2] + p.z * f.az[2];
+  const g = gunYaw * ANGLE_UNIT;
+  const gc = cosLUT(g);
+  const gs = sinLUT(g);
+  // The gun's rows on the hull's: forward sin g x + cos g z, x cos g x - sin g z.
+  for (let k = 0; k < 3; k++) {
+    const x = f.ax[k];
+    const z = f.az[k];
+    f.az[k] = gs * x + gc * z;
+    f.ax[k] = gc * x - gs * z;
+  }
+  gunScratch.mx = gunScratch.x - m.mx * f.ax[0] + m.my * f.ay[0] + m.mz * f.az[0];
+  gunScratch.my = gunScratch.y - m.mx * f.ax[1] + m.my * f.ay[1] + m.mz * f.az[1];
+  gunScratch.mh = gunScratch.h - m.mx * f.ax[2] + m.my * f.ay[2] + m.mz * f.az[2];
+  gunScratch.fx = f.az[0];
+  gunScratch.fy = f.az[1];
+  gunScratch.fh = f.az[2];
 }
 
 /** An angle in radians as the original's 12-bit angle units, 0..4095. */
@@ -4625,7 +4662,7 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
     let target = state.gunTarget[k] - 1;
     if (target >= 0 && !ent.alive[target]) target = -1;
     // The mount: on its point, turned toward its target or home.
-    placeGun(ent, id, m, frame, ent.yaw[id] + state.gunYaw[k] * ANGLE_UNIT);
+    placeGun(state, id, m, frame, state.gunYaw[k]);
     let desired = 0;
     if (target >= 0) {
       const bearing = atan2Poly(ent.posY[target] - gunScratch.y, ent.posX[target] - gunScratch.x);
@@ -4650,8 +4687,7 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
     }
     state.gunTarget[k] = target + 1;
     if (target < 0) continue; // the round waits, the clock stopped
-    const yaw = ent.yaw[id] + state.gunYaw[k] * ANGLE_UNIT;
-    placeGun(ent, id, m, frame, yaw);
+    placeGun(state, id, m, frame, state.gunYaw[k]);
     if (!aimFrom(state, gunScratch.mx, gunScratch.my, target, w)) continue;
     const blocked = segmentBlocked(
       state.map,
@@ -4660,10 +4696,11 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
       ent.posX[target],
       ent.posY[target],
     );
-    // Its gun never pitches (no mount sets CACT_MOUNT_AIM_PITCH; I6), so the arc
-    // is tested against a level barrel.
+    // Its gun never pitches on its mount (no mount sets CACT_MOUNT_AIM_PITCH;
+    // I6), so the arc is tested against the barrel's row 2 as the hull's matrix
+    // carries it: level on level ground, tilted with the hull on a slope.
     const dh = ent.height[target] + entityRefHeight(state, target) - gunScratch.mh;
-    if (blocked || arcDot(cosLUT(yaw), sinLUT(yaw), 0, dh) < w.arcCos) {
+    if (blocked || arcDotRow(gunScratch.fx, gunScratch.fy, gunScratch.fh, dh) < w.arcCos) {
       state.gunPhase[k] = PHASE_INSIDE;
       state.gunClock[k] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
       continue;
@@ -4739,6 +4776,18 @@ function arcDot(fx: number, fy: number, pitch: number, dh: number): number {
   if (len < 1e-6) return 1;
   const across = (aimScratch.x * fx + aimScratch.y * fy) * d;
   return (across * cosUnits(pitch) - dh * sinUnits(pitch)) / len;
+}
+
+/**
+ * The firing arc's dot against a barrel's row 2 given whole, (fx, fy) across
+ * and `fh` up (`discharge_arc_blocks` 0x0044db71), with the aim as arcDot takes
+ * it: aimScratch's horizontal unit over `aimScratch.d`, and `dh` up.
+ */
+function arcDotRow(fx: number, fy: number, fh: number, dh: number): number {
+  const d = aimScratch.d;
+  const len = Math.sqrt(d * d + dh * dh);
+  if (len < 1e-6) return 1;
+  return ((aimScratch.x * fx + aimScratch.y * fy) * d + dh * fh) / len;
 }
 
 /** Phase 1 dummy-turret targeting: nearest VISIBLE enemy avatar in range. */
@@ -6742,6 +6791,9 @@ export function step(state: SimState, inputs: TickInputs): void {
     // this tick's, and a carried rider is where its lift is before anything
     // else reads its height.
     systemLifts(state);
+    // The cockpit's aim after the mech has moved and ridden (the partner's
+    // tick ends the mech's own, 0x00447059).
+    systemCockpitAim(state);
     systemQueues(state);
     // The Warden slots in directly after the human avatars: it IS the other
     // avatar (decision layer + superplane movement + weapons + buying), so it
@@ -7087,6 +7139,30 @@ export function hash(state: SimState): number {
       h = fnv1aU32(h, c.velocity[id] >>> 0);
       h = fnv1aU32(h, (c.next[id] & 0xffff) | (c.phase[id] << 16));
     }
+  }
+  // Appended at SIM_VERSION 114: every live ground unit's bank and hull matrix
+  // angles on an arena with the graph (route.ts orient), every live aircraft's
+  // up row (units.ts AirState), each player's cockpit aim (orient.ts).
+  if (lanes !== undefined) {
+    const c = state.route;
+    for (let id = 0; id < ent.high; id++) {
+      if (!ent.alive[id] || !isGroundUnit(ent.archetype[id])) continue;
+      h = fnv1aU32(h, (c.bankPeak[id] & 0xffff) | (c.bank[id] << 16));
+      h = fnv1aU32(h, (c.hullYaw[id] & 0xffff) | (c.hullPitch[id] << 16));
+      h = fnv1aU32(h, c.hullBank[id] & 0xffff);
+    }
+  }
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id]) continue;
+    const a = ent.archetype[id];
+    if (a !== ARCHETYPE.GUARDIAN && a !== ARCHETYPE.FORTRESS && a !== ARCHETYPE.WARDEN) continue;
+    h = fnv1aU32(h, air.ux[id] >>> 0);
+    h = fnv1aU32(h, air.uy[id] >>> 0);
+    h = fnv1aU32(h, air.uz[id] >>> 0);
+  }
+  const aim = state.cockpitAim;
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    h = fnv1aU32(h, (aim.yaw[p] & 0xffff) | (aim.pitch[p] << 16));
   }
   return h;
 }

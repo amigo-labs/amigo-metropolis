@@ -206,6 +206,10 @@ describe("the Dreadnought's guns never pitch (fcop-fidelity.md I6)", () => {
       ent.posX[id] = x;
       ent.posY[id] = y;
       ent.yaw[id] = 0;
+      // Its hull's matrix level on that yaw (route.ts orient).
+      state.route.hullYaw[id] = 0;
+      state.route.hullPitch[id] = 0;
+      state.route.hullBank[id] = 0;
       ent.velX[id] = 0;
       ent.velY[id] = 0;
       ent.height[id] = sampleHeight(state.map, x, y);

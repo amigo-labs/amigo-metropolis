@@ -53,11 +53,27 @@ function arena(): SimState {
   return state;
 }
 
-/** A unit of `arch` for `team` (1) at (x, y) on the ground, facing +y. */
+/**
+ * Turns route follower `id`'s hull to `yaw` 12-bit units, level (route.ts
+ * orient): its colliders stand on its hull's matrix since SIM_VERSION 114.
+ */
+function hull(state: SimState, id: number, yaw: number): void {
+  state.ent.yaw[id] = (yaw * 2 * Math.PI) / 4096;
+  state.route.hullYaw[id] = yaw;
+  state.route.hullPitch[id] = 0;
+  state.route.hullBank[id] = 0;
+}
+
+/**
+ * A unit of `arch` for `team` (1) at (x, y) on the ground, facing +y: a tank's
+ * position its model's origin, its grounding over the ground (the route
+ * cursor's height since SIM_VERSION 114).
+ */
 function unit(state: SimState, arch: number, x: number, y: number, team = 1): number {
   const id = spawnUnit(state, arch, team, x, y);
-  state.ent.height[id] = 0;
-  state.ent.yaw[id] = Math.PI / 2;
+  const tank = state.map.shapes.tank;
+  state.ent.height[id] = arch === ARCHETYPE.RUNNER && tank !== null ? tank.ly : 0;
+  hull(state, id, 1024);
   return id;
 }
 
@@ -163,12 +179,12 @@ describe("a route follower's contact", () => {
   it("does not count the Dreadnought's gun mounts", () => {
     const state = arena();
     const d = unit(state, ARCHETYPE.JUGGERNAUT, X, Y);
-    state.ent.yaw[d] = 0;
+    hull(state, d, 0);
     // A tank lifted to a fore mount's height beside the hull: the mount's box
     // alone meets it, and the mount lacks bit 31 (0x00425fdd, 0x004247e5).
     const t = unit(state, ARCHETYPE.RUNNER, X - 1.5, Y - 0.5);
-    state.ent.yaw[t] = 0;
-    state.ent.height[t] = 0.8;
+    hull(state, t, 0);
+    state.ent.height[t] += 0.8;
     expect(bodiesContact(state, d, t)).toBe(1);
     expect(bodiesContact(state, d, t, true)).toBe(0);
   });

@@ -1973,6 +1973,17 @@ export const AIRCRAFT_VERT_DEADBAND = 0x200;
 export const AIRCRAFT_PITCH_LIMIT = 0x8000;
 /** The up vector's Y bias the bank is built against (0x00420c61, 0x00420ee3). */
 export const AIRCRAFT_UP_BIAS = 0x2000;
+
+/**
+ * The X1 cockpit's aim (`player_partner_tick` 0x004470d0; orient.ts
+ * systemCockpitAim), 4096 a turn: a step a tick toward the lock
+ * (`PLAYER_AIM_STEP`, 0x004471ec / 0x0044726e), the pitch's limit either way
+ * (0x004471bf / 0x004471cd) and the yaw's off the facing (0x00447242 /
+ * 0x0044724e).
+ */
+export const COCKPIT_AIM_STEP = 0x18;
+export const COCKPIT_AIM_PITCH_LIMIT = 0x190;
+export const COCKPIT_AIM_YAW_LIMIT = 0x80;
 /**
  * The crash (`aircraft_op4` 0x00420296): the Sky Captain always, a jet or
  * Flying Fortress when `(rand & 0xf) < 0xa` (10 times in 16), freezes heading x

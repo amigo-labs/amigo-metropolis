@@ -86,7 +86,10 @@ import { createSim, step } from "../src/sim";
 // boxes against its own contact model) and the tanks and the other mech hurt
 // it a step, so the fight plays out otherwise: the mechs go down 4 times and
 // player 0's tank breaches at 87.7 s.
-const BREACH_TICK_PIN = 2632;
+// 2273 at SIM_VERSION 114: the tanks stand at their cursor's height and turn by
+// their hull's matrix, the cockpits by their aim, so rounds meet them otherwise:
+// the mechs go down 3 times and player 0's tank breaches at 75.8 s.
+const BREACH_TICK_PIN = 2273;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {

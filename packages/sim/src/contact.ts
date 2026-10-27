@@ -30,10 +30,12 @@
 // (the catalogue entry's aRSL slot 0), oriented along its flight
 // (`math_matrix_from_forward_up`, missile.c 989-1017).
 //
-// Kept from Metropolis: every orientation is the sim's yaw alone, a turret's gun
-// with its pitch (the original tilts the mech and the ground units to the
-// ground, banks and pitches the aircraft and turns the cockpit by its aim, none
-// of which the sim's bodies carry); the octagon and
+// Every body turns as its matrix does (orient.ts, SIM_VERSION 114): a route
+// follower's hull on the cursor's yaw, pitch and bank, an aircraft on its
+// heading and up row (its crash tumble too), the cockpit by its aim's yaw and
+// pitch, a turret's gun by its pitch. Kept from Metropolis: the mech's legs
+// turn by its yaw alone (its own matrix's heading y and roll not modelled); the
+// octagon and
 // the boxes are in floating metres (the original truncates to 1/16 world unit
 // on the way); a body with no imported model, or a round with none, meets the
 // other at Metropolis' flat circle (sim.ts roundMeets).
@@ -50,14 +52,11 @@ import {
   X1_RAMP_FULL,
 } from "./balance";
 import { type MapShapeTable, type MapTurretShape, SHAPE_WORDS } from "./map";
+import { bodyFrame, cockpitAt, cockpitMount, createFrame, type Frame } from "./orient";
+import { followsRoutes } from "./route";
 import type { SimState } from "./sim";
 import { cosLUT, sinLUT } from "./simMath";
-import {
-  X1_BOX_WORDS,
-  X1_COCKPIT_BOXES,
-  X1_LEGS_BOXES,
-  X1_LEGS_POINT0,
-} from "./x1Shapes.generated";
+import { X1_BOX_WORDS, X1_COCKPIT_BOXES, X1_LEGS_BOXES } from "./x1Shapes.generated";
 
 /** The models' raw halfwords (1/512 m) a metre. */
 const RAW_PER_METRE = 512;
@@ -316,6 +315,35 @@ export function pairTouches(a: Collider, b: Collider): boolean {
   return hitBoxes(a, b);
 }
 
+/** Takes frame `f`'s axes into collider `c`. */
+function frameAxes(c: Collider, f: Frame): void {
+  for (let k = 0; k < 3; k++) {
+    c.ax[k] = f.ax[k];
+    c.ay[k] = f.ay[k];
+    c.az[k] = f.az[k];
+  }
+}
+
+/**
+ * Turns a collider placed on a hull's axes by a mount's yaw within the hull
+ * (`math_matrix_from_angles(yaw, 0, 0)` over the hull's matrix, mount.c
+ * 0x00425b8e..0x00425bb3): forward `sin g x + cos g z`, x `cos g x - sin g z`.
+ */
+function mountYaw(c: Collider, g: number): void {
+  if (g === 0) return;
+  const co = cosLUT(g);
+  const si = sinLUT(g);
+  for (let k = 0; k < 3; k++) {
+    const x = c.ax[k];
+    const z = c.az[k];
+    c.az[k] = si * x + co * z;
+    c.ax[k] = co * x - si * z;
+  }
+}
+
+/** Scratch: a body's frame (module scope). */
+const bodyF = createFrame();
+
 /** Places `c` at (x, y, h) on `yaw` with `table` at `frame` (clamped into the table). */
 function place(
   c: Collider,
@@ -365,16 +393,23 @@ function bodyColliders(state: SimState, id: number, out: Collider[]): number {
       const p = ent.ownerId[id];
       if (p < 0 || p >= state.avatarId.length || state.avatarId[p] !== id) return -1;
       const legs = state.walker.legs.frame[p];
-      const c = out[0];
-      place(c, X1_LEGS_SHAPE, legs, x, y, h, yaw);
-      // The partner on the legs' point 0 of the frame, in the legs' placement.
-      const f = legs >= 0 && legs < X1_LEGS_SHAPE.frames ? legs : 0;
-      const mx = X1_LEGS_POINT0[f * 3] / RAW_PER_METRE;
-      const my = X1_LEGS_POINT0[f * 3 + 1] / RAW_PER_METRE;
-      const mz = X1_LEGS_POINT0[f * 3 + 2] / RAW_PER_METRE;
-      const px = x + mx * c.ax[0] + mz * c.az[0];
-      const py = y + mx * c.ax[1] + mz * c.az[1];
-      place(out[1], X1_COCKPIT_SHAPE, state.walker.cockpit.frame[p], px, py, h + my, yaw);
+      place(out[0], X1_LEGS_SHAPE, legs, x, y, h, yaw);
+      // The partner on the legs' point 0 of the frame, in the legs' placement,
+      // turned by the facing plus its aim's yaw and pitched by its aim's pitch
+      // (`player_partner_tick` 0x004472c2).
+      cockpitMount(state, p, id);
+      const aim = state.cockpitAim;
+      const c = out[1];
+      place(
+        c,
+        X1_COCKPIT_SHAPE,
+        state.walker.cockpit.frame[p],
+        cockpitAt.x,
+        cockpitAt.y,
+        cockpitAt.h,
+        yaw + aim.yaw[p] * ANGLE_UNIT,
+      );
+      pitchAxes(c, aim.pitch[p]);
       return 2;
     }
     case ARCHETYPE.TURRET: {
@@ -396,21 +431,27 @@ function bodyColliders(state: SimState, id: number, out: Collider[]): number {
       const team = ent.team[id];
       const walk = team === 0 || team === 1 ? state.hullWalk[team] : null;
       const frame = walk ? walk.frame[id] : 0;
-      place(out[0], sh.tables[s], frame, x, y, h, yaw);
+      const hull = out[0];
+      place(hull, sh.tables[s], frame, x, y, h, yaw);
+      bodyFrame(bodyF, state, id);
+      frameAxes(hull, bodyF);
       if ((team !== 0 && team !== 1) || sh.dreadnoughtGuns.length === 0) return 1;
-      // Each gun on its hull point of the frame, on its own yaw (sim.ts placeGun).
+      // Each gun on its hull point of the frame (glb x is the model's
+      // negated, sim.ts placeGun), through the hull's matrix, on its own yaw
+      // within it.
       const jug = state.map.bases[team].juggernaut;
-      const co = cosLUT(yaw);
-      const si = sinLUT(yaw);
       let n = 1;
       for (let g = 0; g < jug.guns && g < sh.dreadnoughtGuns.length && n < MAX_PARTS; g++) {
         const m = jug.mounts[g];
         const fr = m.frames;
         const pt = fr !== undefined && frame >= 0 && frame < fr.length ? fr[frame] : m;
-        const gx = x + pt.z * co + pt.x * si;
-        const gy = y + pt.z * si - pt.x * co;
-        const gyaw = yaw + state.gunYaw[id * DREADNOUGHT_GUNS + g] * ANGLE_UNIT;
-        place(out[n], sh.tables[sh.dreadnoughtGuns[g]], 0, gx, gy, h + pt.y, gyaw);
+        const gx = x - pt.x * hull.ax[0] + pt.y * hull.ay[0] + pt.z * hull.az[0];
+        const gy = y - pt.x * hull.ax[1] + pt.y * hull.ay[1] + pt.z * hull.az[1];
+        const gh = h - pt.x * hull.ax[2] + pt.y * hull.ay[2] + pt.z * hull.az[2];
+        const gc = out[n];
+        place(gc, sh.tables[sh.dreadnoughtGuns[g]], 0, gx, gy, gh, 0);
+        frameAxes(gc, bodyF);
+        mountYaw(gc, state.gunYaw[id * DREADNOUGHT_GUNS + g] * ANGLE_UNIT);
         n++;
       }
       return n;
@@ -433,11 +474,17 @@ function bodyColliders(state: SimState, id: number, out: Collider[]): number {
                 ? sh.skyCaptain[s]
                 : null;
       if (u === null) return -1;
-      // The model's origin stands off the position by the unit's lift (the
-      // tank's drawn grounding; none for an aircraft).
+      // On its matrix (orient.ts bodyFrame). A tank off the road graph stands
+      // on the ground, its model's origin off the position by the drawing's
+      // lift; a route follower's position is its origin (the cursor's height,
+      // route.ts), as an aircraft's is.
       const c = out[0];
       place(c, sh.tables[u.table], 0, x, y, h, yaw);
-      for (let k = 0; k < 3; k++) c.p[k] += u.lx * c.ax[k] + u.ly * c.ay[k] + u.lz * c.az[k];
+      bodyFrame(bodyF, state, id);
+      frameAxes(c, bodyF);
+      if (arch === ARCHETYPE.RUNNER && !followsRoutes(state)) {
+        for (let k = 0; k < 3; k++) c.p[k] += u.lx * c.ax[k] + u.ly * c.ay[k] + u.lz * c.az[k];
+      }
       return 1;
     }
     default:

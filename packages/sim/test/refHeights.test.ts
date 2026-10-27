@@ -18,9 +18,9 @@ describe("reference heights", () => {
     // Mp: the X1's legs at the walker's frame and the hover's (Cobj 15).
     expect(map.refHeights.walker).toBe(189 / 512);
     expect(map.refHeights.hover).toBe(88 / 512);
-    // Mp's tank: its box's centre sits just below its model's origin, which the
-    // client draws grounded, 0.207031 m over the position (gen:units' lift).
-    expect(map.refHeights.tank).toBeCloseTo(0.207031 - 4 / 512, 4);
+    // Mp's tank: its box's centre sits just below its model's origin, which is
+    // its position (the route cursor's height since SIM_VERSION 114).
+    expect(map.refHeights.tank).toBeCloseTo(-4 / 512, 4);
     expect(map.shapes.tank?.ly).toBe(0.207031);
     // A type-8 turret's gun (Cobj 20, centre 193) on its base's point 0
     // (Cobj 21, 0.337891 m up).

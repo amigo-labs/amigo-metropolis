@@ -267,6 +267,8 @@ interface RawActor {
   /** A type-98 catalogue entry's key byte and its raw acceleration (+0x14). */
   weapon_key?: number;
   weapon_accel?: number;
+  /** A pathed actor's route block (types 5 and 28), raw (readGroundCasts). */
+  route?: PaRoute;
 }
 
 interface RawNetNode {
@@ -400,6 +402,17 @@ export function readGroundCasts(
       };
       if (a.act_type === ACT.SKY_CAPTAIN) continue;
     }
+    if (a.act_type === ACT.PATHED_ACTOR || a.act_type === ACT.DREADNOUGHT) {
+      // The route block `cnet_route_init` reads (0x004415f0, handed payload
+      // +0x30 by the type-5 construct at 0x00425257): its flag word's low
+      // halfword (+0) and its height bias (+4), raw (RE fcop/net_route.h
+      // CNET_ROUTE_PARAM_FLAGS, _HEIGHT_BIAS).
+      const blob = recordOf(a);
+      a.route = {
+        flags: blob[TACT_PAYLOAD + 0x30] | (blob[TACT_PAYLOAD + 0x31] << 8),
+        heightBias: i16(blob, TACT_PAYLOAD + 0x34),
+      };
+    }
     if (a.act_type === ACT.WEAPON) {
       // A catalogue entry is the payload from +0x10 (`cact_weapon_catalogue_load`
       // 0x0044eb80): its key byte, and +0x14 the acceleration before the
@@ -469,6 +482,17 @@ export interface PaSpawn {
  * spawn point — node 0 of its Cnet, next to the HQ — not a base structure: the
  * original has no destructible core (fcop-re/ranges-turrets-capture.md, top).
  */
+/**
+ * A pathed actor's route block, raw (`cnet_route_init` 0x004415f0): the flag
+ * word's low halfword -- 0 the tank, 0x20 (CNET_ROUTE_BANK) Hk's, 0x8 the
+ * Dreadnought -- and the height bias, `<< 4` world units over the road the
+ * cursor walks (the tick's 0x00440672).
+ */
+export interface PaRoute {
+  readonly flags: number;
+  readonly heightBias: number;
+}
+
 export interface PaDreadnought {
   readonly id: number;
   readonly x: number;
@@ -492,6 +516,8 @@ export interface PaDreadnought {
   /** Its own route block at payload 0x30: move_speed 1024, accel 1228. */
   readonly moveSpeed: number;
   readonly acceleration: number;
+  /** The same block's flags and height bias (PaRoute). */
+  readonly route: PaRoute;
 }
 
 export interface PaTurret {
@@ -555,6 +581,8 @@ export interface PaUnit {
   readonly shooter: PaShooter;
   readonly spawnTicks: number;
   readonly spawnLimit: number;
+  /** Its route block's flags and height bias (PaRoute). */
+  readonly route: PaRoute;
 }
 
 /** An aircraft record's flight block, raw (sim balance.ts AircraftFlight, less the model's half height). */
@@ -686,6 +714,11 @@ function shooter(p: RawParams): PaShooter {
   };
 }
 
+function routeOf(a: RawActor): PaRoute {
+  if (!a.route) throw new Error(`type-${a.act_type} record ${a.matching}: route block not read`);
+  return a.route;
+}
+
 /** Cobj id of the alive model, i.e. resource slot 0. */
 function aliveObj(a: RawActor): number {
   const ref = (a.refs ?? []).find((r) => r.slot === 0 && r.type === "Cobj");
@@ -799,6 +832,7 @@ export function buildPaLogic(
         },
         moveSpeed: p.unit_template?.move_speed ?? 0,
         acceleration: p.unit_template?.acceleration ?? 0,
+        route: routeOf(a),
       };
     }),
     turrets: of(ACT.TURRET).map(turret),
@@ -845,6 +879,7 @@ export function buildPaLogic(
         shooter: shooter(p),
         spawnTicks: a.spawn_ticks ?? 0,
         spawnLimit: a.spawn_limit ?? 0,
+        route: routeOf(a),
       };
     }),
     aircraft: of(ACT.AIRCRAFT).map((a) => {

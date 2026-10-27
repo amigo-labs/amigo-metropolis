@@ -85,7 +85,7 @@ describe("a round against a body", () => {
     expect(X1_COCKPIT_SHAPE.frames).toBe(30);
   });
 
-  it("turns the tank's box with its yaw: long ahead, narrow abeam", () => {
+  it("turns the tank's box with its hull's yaw: long ahead, narrow abeam", () => {
     const state = createSim(getMapById(LA_CANTINA_ID), 1);
     const ent = state.ent;
     const { x, y } = at(state.map);
@@ -94,26 +94,37 @@ describe("a round against a body", () => {
     // Weapon 2's round (Cobj 13: a disc 0.02 m across) 0.62 m to the side, at
     // the box's middle height, flying past along +x.
     const r = round(state, 2, x, y + 0.62, 0.2);
+    // Its hull's matrix (route.ts orient), its box's middle 0.2 m up.
+    ent.height[tank] = 0.207;
+    state.route.hullPitch[tank] = 0;
+    state.route.hullBank[tank] = 0;
     // Facing +x the tank is 1.05 m wide (0.52 a side): the round passes.
-    ent.yaw[tank] = 0;
+    state.route.hullYaw[tank] = 0;
     expect(roundContact(state, r, tank, 1, 0, 0)).toBe(0);
     // Facing +y its 1.52 m length reaches out to it.
-    ent.yaw[tank] = Math.PI / 2;
+    state.route.hullYaw[tank] = 1024;
+    expect(roundContact(state, r, tank, 1, 0, 0)).toBe(1);
+    // The entity's own yaw (the cursor's, which its shooter turns) is not it.
+    ent.yaw[tank] = 0;
     expect(roundContact(state, r, tank, 1, 0, 0)).toBe(1);
   });
 
-  it("measures from the drawn unit: a tank's box stands on its position", () => {
+  it("measures from the model's origin: a route follower's position is its origin", () => {
     const state = createSim(getMapById(LA_CANTINA_ID), 1);
     const ent = state.ent;
     const { x, y } = at(state.map);
     const tank = spawnUnit(state, ARCHETYPE.RUNNER, 0, x, y);
     ent.height[tank] = 0;
-    ent.yaw[tank] = 0;
-    // Its model's origin is drawn 0.207 m up: its box spans 0..0.40 m.
-    const r = round(state, 2, x, y, 0.35);
+    state.route.hullYaw[tank] = 0;
+    state.route.hullPitch[tank] = 0;
+    state.route.hullBank[tank] = 0;
+    // Its box spans -0.207..0.19 m about its origin (Cobj 30's box 0).
+    const r = round(state, 2, x, y, 0.15);
     expect(roundContact(state, r, tank, 0, 1, 0)).toBe(1);
-    ent.height[r] = 0.45;
+    ent.height[r] = 0.25;
     expect(roundContact(state, r, tank, 0, 1, 0)).toBe(0);
+    ent.height[r] = -0.15;
+    expect(roundContact(state, r, tank, 0, 1, 0)).toBe(1);
   });
 
   it("meets a neutral turret's gun on its base's point 0, a metre up", () => {

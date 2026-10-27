@@ -55,7 +55,11 @@
         "targetingDelayRaw": 16
       },
       "moveSpeed": 1024,
-      "acceleration": 1228
+      "acceleration": 1228,
+      "route": {
+        "flags": 8,
+        "heightBias": 20
+      }
     },
     {
       "id": 23,
@@ -76,7 +80,11 @@
         "targetingDelayRaw": 16
       },
       "moveSpeed": 1024,
-      "acceleration": 1228
+      "acceleration": 1228,
+      "route": {
+        "flags": 8,
+        "heightBias": 20
+      }
     }
   ],
   "turrets": [
@@ -1753,7 +1761,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     },
     {
       "id": 77,
@@ -1773,7 +1785,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     },
     {
       "id": 87,
@@ -1793,7 +1809,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     },
     {
       "id": 144,
@@ -1813,7 +1833,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     },
     {
       "id": 154,
@@ -1833,7 +1857,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     },
     {
       "id": 172,
@@ -1853,7 +1881,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     },
     {
       "id": 173,
@@ -1873,7 +1905,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     },
     {
       "id": 185,
@@ -1893,7 +1929,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     },
     {
       "id": 204,
@@ -1913,7 +1953,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     },
     {
       "id": 205,
@@ -1933,7 +1977,11 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "spawnLimit": 20
+      "spawnLimit": 20,
+      "route": {
+        "flags": 0,
+        "heightBias": 20
+      }
     }
   ],
   "aircraft": [

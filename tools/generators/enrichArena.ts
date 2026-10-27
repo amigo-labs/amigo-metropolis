@@ -154,9 +154,18 @@ interface Logic {
     netId: number;
     gunCount: number;
     gun: Shooter;
+    /** Its route block, raw (fcopLogic.ts PaRoute). */
+    route: { flags: number; heightBias: number };
   }[];
   /** Tank (Runner) spawner records; spawnLimit 20 marks the purchasable ones. */
-  units: { id: number; team: number; health: number; spawnLimit?: number; shooter: Shooter }[];
+  units: {
+    id: number;
+    team: number;
+    health: number;
+    spawnLimit?: number;
+    shooter: Shooter;
+    route: { flags: number; heightBias: number };
+  }[];
   /** Jet (Guardian) and Flying Fortress records. */
   aircraft: {
     id: number;
@@ -1142,6 +1151,28 @@ function baseFlightOf(
   };
 }
 
+/**
+ * The route blocks the cursor runs on (`cnet_route_init` 0x004415f0; map.ts
+ * MapRouteParams), `[flags, bias]` raw: the purchasable tanks' (spawn limit 20;
+ * Hk's other type-5 record, flags 0x28, spawns nothing) and the Dreadnoughts',
+ * each one block for both sides.
+ */
+function routesOf(logic: Logic, mapId: string): { runner: number[]; juggernaut: number[] } {
+  const one = (rows: { route: { flags: number; heightBias: number } }[], what: string) => {
+    const set = new Set(rows.map((r) => `${r.route.flags},${r.route.heightBias}`));
+    if (set.size !== 1)
+      throw new Error(`${mapId}: the ${what} records carry ${set.size} route blocks`);
+    return [rows[0].route.flags, rows[0].route.heightBias];
+  };
+  return {
+    runner: one(
+      logic.units.filter((u) => u.spawnLimit === 20),
+      "tank",
+    ),
+    juggernaut: one(logic.dreadnoughts, "Dreadnought"),
+  };
+}
+
 /** The catalogue's weapon 8, the Sky Captain's missile: its raw acceleration. */
 function skyMissileAccelOf(logic: Logic, mapId: string): number {
   const rows = logic.catalogue.filter((c) => c.key === 8);
@@ -1352,9 +1383,10 @@ function radiiOf(models: ModelsArtifact, spots: number, mapId: string) {
  * 16.16, so a box halfword is 16 world units -- raw / 512 m, the radius's own
  * unit). A turret's gun stands on its base's attach point 0 (turret.c 914-917),
  * so its point is that point's height plus the gun's centre (sim.ts turretPitch
- * reads it whole); the tank, which the client draws grounded, stands its
- * model's origin over its position by the drawing's lift. (Until SIM_VERSION
- * 109 this read raw / 8192, the halfword taken as one world unit.)
+ * reads it whole); every unit's position is its model's origin (the tank's
+ * the route cursor's height since SIM_VERSION 114; until then it stood on the
+ * ground and this added the drawing's lift). (Until SIM_VERSION 109 this read
+ * raw / 8192, the halfword taken as one world unit.)
  */
 function refHeightsOf(models: ModelsArtifact, spots: number, mapId: string) {
   const r = models.refs;
@@ -1371,9 +1403,9 @@ function refHeightsOf(models: ModelsArtifact, spots: number, mapId: string) {
   return {
     walker: m(r.x1.walker),
     hover: m(r.x1.hover),
-    // The tank stands its model's origin over its position by the drawing's
-    // lift (ModelsUnitShape; shapesOf); an aircraft's position is its origin.
-    tank: round4(sh.tank.lift[1] + m(r.tank)),
+    // A tank's position is its model's origin since SIM_VERSION 114, the route
+    // cursor's own height (route.ts), as an aircraft's is.
+    tank: round4(m(r.tank)),
     jet: m(r.jet),
     fortress: m(r.fortress),
     dreadnought: m(r.dreadnought),
@@ -2905,6 +2937,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       heights: graph.heights,
       closed: graph.closed,
       netStart: graph.netStart,
+      // The tanks' and the Dreadnoughts' route blocks (fcop-fidelity.md U1, I6).
+      routes: routesOf(logic, mapId),
     },
     pickups,
     triggerVolumes,

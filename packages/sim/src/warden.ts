@@ -124,6 +124,7 @@ import {
   aircraftFlight,
   aircraftFly,
   aircraftTumble,
+  levelUp,
   nearestEnemyInRange,
   octagonal,
   placeAircraft,
@@ -360,7 +361,7 @@ export function captainRespawn(state: SimState): void {
   air.vx[id] = 0;
   air.vy[id] = 0;
   air.vz[id] = 0;
-  air.upY[id] = AIRCRAFT_HEADING_ONE;
+  levelUp(air, id);
   air.phase[id] = AIR_FLY;
   state.ent.velX[id] = 0;
   state.ent.velY[id] = 0;

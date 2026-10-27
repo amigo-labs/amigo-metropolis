@@ -1679,4 +1679,24 @@
 //     tank's rear-end contact with a Dreadnought no longer counts its gun
 //     mounts (bit 31, 0x00425fdd / 0x004247e5). Every golden moves (the contact
 //     models are hashed on every map).
-export const SIM_VERSION = 113;
+// v114: the bodies turn as their matrices do (fcop-fidelity.md I6, U1, G1,
+//     A19; route.ts, orient.ts). A route follower stands at the cursor's own
+//     height -- the leg's line between the nodes' heights plus its record's
+//     height bias << 4 (tank 307, Hk 102, Joke 20; Dreadnought 204, Joke 20;
+//     the tick's 0x004405f4..0x00440672), the corner cut on the height too --
+//     instead of on the sim surface, and a halted one sinks to the ground plus
+//     its box's lower half (`cnet_route_vertical` 0x004414b0); its hull's
+//     matrix is `cnet_route_orient`'s fourth arm, `math_matrix_from_angles(yaw,
+//     pitch, bank)` of the cursor (0x00424bc0; no PA record carries 0x100 or
+//     0x200), rebuilt only on a tick whose step answers bit 1 (0x00424e1e);
+//     Hk's tanks (route flag 0x20) bank into a corner (0x00440be6, 0x00441296).
+//     The Dreadnought's guns stand on, turn on and fire from that matrix, and
+//     their arc is tested against its tilted row 2. An aircraft's up row is
+//     kept whole (`math_matrix_from_forward_up` 0x0043fbc0; the crash's from the
+//     last row, 0x00420ee3). The cockpit's aim is the sim's
+//     (`player_partner_tick` 0x004470d0), and its collider turns by it; every
+//     collider takes its body's matrix. The route blocks are imported per arena
+//     (MapLaneGraph.runnerRoute / juggernautRoute); the tank's reference height
+//     is its origin's. The bank, the hull's angles, the up rows and the aims are
+//     hashed. Every golden diverges.
+export const SIM_VERSION = 114;
