@@ -3,7 +3,7 @@
 //   <originals>/<name>.mpg      FCOP_MOVIES_DIR (or --movies): the install's
 //                               Movies\ directory -- in no repository, by the
 //                               owner's decision; only these re-encodes are
-//   <RE>/fixtures/movies/manifest.json   FCOP_RE_REPO (or --re): each
+//   <RE>/fixtures/movies/manifest.json   an RE checkout (reRepo.ts): each
 //                               original's size and sha256, where the EXE
 //                               plays it (RE docs/formats/movies.md)
 //     -> packages/client/public/movies/<name>.mp4
@@ -45,6 +45,7 @@ import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:f
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { findReRepo } from "./reRepo";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const OUT_DIR = join(ROOT, "packages", "client", "public", "movies");
@@ -204,15 +205,15 @@ async function main(): Promise<number> {
   const check = process.argv.includes("--check");
   const reencode = process.argv.includes("--reencode");
   const jobs = Math.max(1, Number(argValue("--jobs") ?? 2) | 0);
-  const reArg = argValue("--re") ?? process.env.FCOP_RE_REPO;
+  const re = findReRepo();
   const moviesArg = argValue("--movies") ?? process.env.FCOP_MOVIES_DIR;
   const srcDir = moviesArg ? resolve(moviesArg) : null;
   const haveSources = srcDir !== null && existsSync(srcDir);
 
   /** The RE's record of the originals, by name. */
   let manifest: Map<string, SourceMovie> | null = null;
-  if (reArg) {
-    const path = join(resolve(reArg), "fixtures", "movies", "manifest.json");
+  if (re) {
+    const path = join(re, "fixtures", "movies", "manifest.json");
     const m = (await Bun.file(path).json()) as { movies: SourceMovie[] };
     manifest = new Map(m.movies.map((x) => [x.name, x]));
   }
@@ -247,7 +248,7 @@ async function main(): Promise<number> {
         stale++;
       }
     } else {
-      console.log("--check: no FCOP_RE_REPO, the sources' record is not compared");
+      console.log("--check: no RE checkout, the sources' record is not compared");
     }
     if (!haveSources) console.log("--check: no FCOP_MOVIES_DIR, the originals are not read");
     for (const r of rec.records) {

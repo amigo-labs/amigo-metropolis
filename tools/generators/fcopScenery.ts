@@ -50,7 +50,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FCOP_ARENAS, type FcopArena, selectArenas } from "./fcopArenas";
-import { argOf } from "./fcopLogic";
+import { requireReRepo } from "./reRepo";
 import {
   type BoxHalfwords,
   type DecalRect,
@@ -1094,10 +1094,7 @@ function biomeFormat(text: string): string {
 }
 
 function main(): void {
-  const reRepo = argOf(
-    "re-repo",
-    process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
-  );
+  const reRepo = requireReRepo();
   const check = process.argv.includes("--check");
   const positional = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "";
   let stale = 0;

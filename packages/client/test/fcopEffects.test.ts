@@ -1,13 +1,14 @@
 // The committed effect import (effects/fcopEffects.generated.ts, public/fx/)
 // against its source and against itself. The generator reads an RE checkout;
-// where there is one (FCOP_RE, or a sibling of this tree) the committed files
+// where there is one (tools/generators/reRepo.ts finds it) the committed files
 // must be exactly what it writes. Everything else here holds without it.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { findRe, generate } from "../../../tools/generators/fcopEffects";
+import { generate } from "../../../tools/generators/fcopEffects";
 import { decodePng } from "../../../tools/generators/png";
+import { findReRepo } from "../../../tools/generators/reRepo";
 import { FCOP_ARENA_AUDIO, FCOP_PLAYER_WEAPONS } from "../src/audio/fcopAudio.generated";
 import {
   FX_ARENAS,
@@ -23,7 +24,7 @@ const PUBLIC_FX = join(import.meta.dir, "..", "public", "fx");
 const GENERATED = join(import.meta.dir, "..", "src", "effects", "fcopEffects.generated.ts");
 
 describe("gen:fx", () => {
-  const re = findRe();
+  const re = findReRepo();
 
   test.skipIf(re === null)("the committed files are what the generator writes", () => {
     const out = generate(re as string);

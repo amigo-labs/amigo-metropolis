@@ -31,6 +31,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type FcopArena, rulesFile, selectArenas } from "./fcopArenas";
 import { argOf } from "./fcopLogic";
+import { requireReRepo } from "./reRepo";
 
 // ---------------------------------------------------------------------------
 // The RE file, as far as this reads it
@@ -619,10 +620,7 @@ export function formatJson(v: unknown, indent = ""): string {
 }
 
 function main(): void {
-  const reRepo = argOf(
-    "re-repo",
-    process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
-  );
+  const reRepo = requireReRepo();
   const positional = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "";
   const named = positional || argOf("map", argOf("mission", "all"));
 

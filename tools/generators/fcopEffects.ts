@@ -28,14 +28,15 @@
 // and reference effects, folds identical records of the six
 // arenas into one list, and writes the fields each class's drawer reads.
 //
-// Usage: bun run gen:fx [--re <RE checkout>] [--check]
+// Usage: bun run gen:fx [--re-repo <RE checkout>] [--check]
 //   --check regenerates in memory and fails when a committed file differs.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { FCOP_ARENAS } from "./fcopArenas";
 import { type DecodedImage, decodePng, encodePng } from "./png";
+import { requireReRepo } from "./reRepo";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const OUT_TS = join(ROOT, "packages", "client", "src", "effects", "fcopEffects.generated.ts");
@@ -52,22 +53,6 @@ const TRAIL_ATLAS_ROW_H = 64;
 const RIBBON_DST_X = 20;
 /** Where the bolts' texels go in each row. */
 const BOLT_DST_X = 64;
-
-function argValue(flag: string): string | undefined {
-  const i = process.argv.indexOf(flag);
-  return i >= 0 ? process.argv[i + 1] : undefined;
-}
-
-/** The RE checkout: --re, FCOP_RE (or FCOP_RE_REPO, as the other importers read it), or a sibling of this tree or its parent. */
-export function findRe(): string | null {
-  const given = argValue("--re") ?? process.env.FCOP_RE ?? process.env.FCOP_RE_REPO;
-  if (given) return resolve(given);
-  for (const up of ["..", join("..", ".."), join("..", "..", "..")]) {
-    const p = resolve(ROOT, up, "fcop-reverse-engineering");
-    if (existsSync(join(p, "extracted", "effects", "tables.json"))) return p;
-  }
-  return null;
-}
 
 // --- the export's shapes -----------------------------------------------------
 
@@ -856,11 +841,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 function main(): void {
-  const re = findRe();
-  if (!re) {
-    console.error("gen:fx: no RE checkout — pass --re <path> or set FCOP_RE");
-    process.exit(2);
-  }
+  const re = requireReRepo();
   const check = process.argv.includes("--check");
   const out = generate(re);
   // Written as generated: biome.json leaves this one file's formatting alone, so

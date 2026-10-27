@@ -14,8 +14,8 @@
 //   bun run gen:palogic [all | <mapId> | <Mission>] [--re-repo <path>]
 //
 // Any spelling names the arena and tools/generators/fcopArenas.ts supplies the
-// rest; --map/--mission are accepted too. Default RE repo path: $FCOP_RE_REPO,
-// else /workspace/fcop-reverse-engineering.
+// rest; --map/--mission are accepted too. The RE repo is found by
+// tools/generators/reRepo.ts.
 //
 // Authoring-time only, like convert.ts — the committed JSON is the artifact, so
 // any Math.* is fine here. The determinism guard only scans packages/sim/src.
@@ -35,6 +35,7 @@ import { dirname, join } from "node:path";
 import { type FcopArena, logicFile, selectArenas } from "./fcopArenas";
 import { containerIndex, containerResource } from "./fcopCoarse";
 import { plateStackOf, selectedHeight, surfaceHeight } from "./fcopTerrain";
+import { requireReRepo } from "./reRepo";
 
 // ---------------------------------------------------------------------------
 // Unit conversion
@@ -967,10 +968,7 @@ export function argOf(name: string, fallback: string): string {
 }
 
 function main(): void {
-  const reRepo = argOf(
-    "re-repo",
-    process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
-  );
+  const reRepo = requireReRepo();
   // Any spelling identifies the arena and the table supplies the rest: a bare
   // positional (matching gen:walls and gen:arena), --map, or --mission. `all`
   // extracts every mission.

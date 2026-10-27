@@ -19,7 +19,7 @@
 import { copyFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { selectArenas } from "./fcopArenas";
-import { argOf } from "./fcopLogic";
+import { requireReRepo } from "./reRepo";
 
 interface PackManifest {
   mission: string;
@@ -34,10 +34,7 @@ export function paPropPath(mapId: string, cobj: number): string {
 }
 
 function main(): void {
-  const reRepo = argOf(
-    "re-repo",
-    process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
-  );
+  const reRepo = requireReRepo();
   const positional = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "";
   for (const arena of selectArenas(positional || "all")) {
     const src = join(reRepo, "extracted", "findings", "pa_props", arena.mission);

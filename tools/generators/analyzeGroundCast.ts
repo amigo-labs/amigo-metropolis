@@ -24,7 +24,7 @@
 //
 // Usage: bun run tools/generators/analyzeGroundCast.ts [all | <mapId> | <Mission>]
 //                                                      [--re-repo <path>]
-// Default RE repo path: $FCOP_RE_REPO, else ../fcop-reverse-engineering.
+// The RE repo is found by tools/generators/reRepo.ts.
 //
 // Authoring-time only, like convert.ts and enrichArena.ts: any Math.* is fine.
 
@@ -33,6 +33,7 @@ import { join } from "node:path";
 import { crossesWallX, crossesWallY, loadMapFromJson, type MapJson } from "@metropolis/sim";
 import { LOGIC_OFFSET_X, LOGIC_OFFSET_Z } from "./enrichArena";
 import { type FcopArena, selectArenas, wallsFile } from "./fcopArenas";
+import { requireReRepo } from "./reRepo";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const HEIGHT_SCALE = 0.03125; // 1/32 m — mirrors convert.ts and packages/sim/src/map.ts
@@ -68,12 +69,6 @@ interface Terrain {
   walk_height: number[][];
   uses_bridges: boolean;
   layers: { heights: number[][]; mask: string[] }[];
-}
-
-function reRepo(): string {
-  const at = process.argv.indexOf("--re-repo");
-  if (at >= 0 && process.argv[at + 1]) return process.argv[at + 1];
-  return process.env.FCOP_RE_REPO ?? join(REPO_ROOT, "..", "fcop-reverse-engineering");
 }
 
 function nets(root: string, arena: FcopArena): RawNet[] {
@@ -318,7 +313,7 @@ function laneEdges(root: string, arenas: readonly FcopArena[]): void {
 
 const positional = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "all";
 const arenas = selectArenas(positional);
-const root = reRepo();
+const root = requireReRepo();
 console.log(`ground_cast report — RE dumps at ${root}`);
 surfaceModel(root, arenas);
 castByDeck(root, arenas);

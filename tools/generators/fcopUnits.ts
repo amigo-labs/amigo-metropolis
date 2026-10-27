@@ -60,8 +60,8 @@ import {
 import { join } from "node:path";
 import { NodeIO, type Texture } from "@gltf-transform/core";
 import { FCOP_ARENAS, type FcopArena, logicFile } from "./fcopArenas";
-import { argOf } from "./fcopLogic";
 import { decodePng } from "./png";
+import { requireReRepo } from "./reRepo";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const RAW_DIR = join(import.meta.dir, "units", "raw");
@@ -793,10 +793,7 @@ function biomeFormat(text: string): string {
 }
 
 async function main(): Promise<void> {
-  const reRepo = argOf(
-    "re-repo",
-    process.env.FCOP_RE_REPO ?? "/workspace/fcop-reverse-engineering",
-  );
+  const reRepo = requireReRepo();
   const check = process.argv.includes("--check");
   const ordered = SHARE_ORDER.map((id) => {
     const a = FCOP_ARENAS.find((x) => x.mapId === id);

@@ -20,13 +20,13 @@
 // re-encoded or recoloured. The generated TS re-shapes the JSON and decides
 // nothing; every block keeps its `src` citation into the decompiled C.
 //
-// Usage: bun run gen:frontend [--re <RE checkout>] [--check]
+// Usage: bun run gen:frontend [--re-repo <RE checkout>] [--check]
 //   --check  rebuilds everything in memory and exits 1 when a committed file
 //            differs from what the RE's exports would give (nothing is written).
 
-import { existsSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { requireReRepo } from "./reRepo";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const PUBLIC = join(ROOT, "packages", "client", "public");
@@ -66,24 +66,8 @@ const MAP_IDS: Record<string, string> = {
   Joke: "bug-hunt",
 };
 
-function argValue(flag: string): string | undefined {
-  const i = process.argv.indexOf(flag);
-  return i >= 0 ? process.argv[i + 1] : undefined;
-}
-
 const check = process.argv.includes("--check");
-/** The RE checkout: --re, else $FCOP_RE, else a sibling of this tree (or of its worktree folder). */
-function findRe(): string {
-  const given = argValue("--re") ?? process.env.FCOP_RE;
-  if (given) return resolve(given);
-  for (const up of [[".."], ["..", ".."]]) {
-    const dir = join(ROOT, ...up, "fcop-reverse-engineering");
-    if (existsSync(join(dir, "extracted", "frontend", "screens.json"))) return dir;
-  }
-  console.error("usage: bun run gen:frontend [--re <RE checkout>] [--check]");
-  process.exit(2);
-}
-const RE = findRe();
+const RE = requireReRepo();
 const FRONTEND = join(RE, "extracted", "frontend");
 
 interface RawPicture {
