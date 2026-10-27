@@ -164,7 +164,10 @@ export function unitBox(
     case ARCHETYPE.TURRET:
       return aux === TURRET_CAPTURABLE ? (units.neutralTurret[0]?.[0] ?? null) : units.turret[0];
     case ARCHETYPE.WARDEN: {
-      for (const c of units.captain) if (c.levels.includes(level)) return c.box[0];
+      const captains = units.captain;
+      for (let k = 0; k < captains.length; k++) {
+        if (captains[k].levels.includes(level)) return captains[k].box[0];
+      }
       return units.captain[0]?.box[0] ?? null;
     }
     default:
