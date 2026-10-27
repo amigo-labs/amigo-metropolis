@@ -16,13 +16,14 @@
 //   3. its three weapons tick (captainWeapons), then it flies (captainFly).
 // Its requests are spawned from queues at the scripts' cadence (captainQueues).
 //
-// Not modelled: the announcements (state word 56) and its voice lines, the
-// crash tumble before a respawn, the turn rate (it turns at once: the original's
-// is a vector low-pass, ~40-70°/s by estimate) and its quadrupling on the way
-// home, the altitude controller (WARDEN_ALTITUDE).
+// Not modelled: the announcements (state word 56) and its voice lines (the
+// client's, from the sim's events). Its flight is the original's aircraft
+// (units.ts aircraftFly: the turn, the altitude controller, the bank's
+// penalty), its launch climb and its crash tumble (captainFly, captainCrash).
 
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
+  AIRCRAFT_HEADING_ONE,
   COST_FORTRESS,
   COST_GUARDIAN,
   COST_JUGGERNAUT,
@@ -80,10 +81,8 @@ import {
   SKY_TURRETS_SAFE,
   SKY_UNIT_CAP,
   skyMaxHp,
-  skySpeed,
-  TICK_DT,
+  skySpeedRaw,
   UNIT_QUEUES,
-  WARDEN_ALTITUDE,
   WEAPON_UNITS_PER_TICK,
   wardenLevel,
 } from "./balance";
@@ -103,26 +102,31 @@ import {
   SHOT_SLOT_LAUNCH,
   SKY_WEAPON_BOMB,
 } from "./events";
-import { sampleHeight, worldExtent } from "./map";
+import { resolveHeight } from "./map";
 import {
-  ANIM_MOVING,
   avatarMaxHp,
   claimOutpostSlot,
+  downEntity,
+  downed,
   fireWardenMissile,
   hitscan,
-  queuedUnits,
   type SimState,
   spawnUnit,
   spawnWardenBomb,
   TURRET_CAPTURABLE,
   TURRET_DEFENSE,
 } from "./sim";
-import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
+import { cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
 import {
-  aircraftHeading,
-  headingScratch,
+  AIR_FLY,
+  aircraftClimb,
+  aircraftCrash,
+  aircraftFlight,
+  aircraftFly,
+  aircraftTumble,
   nearestEnemyInRange,
-  steerHeading,
+  octagonal,
+  placeAircraft,
   UNIT_MODE_PATROL,
 } from "./units";
 
@@ -139,6 +143,9 @@ export const SKY_MODE_DEFEND = 2; // defend home, or go after the player (mode 2
 /** Its aircraft states: ENGAGE flies at the move target, CRUISE at the destination. */
 export const SKY_ENGAGE = 0;
 export const SKY_CRUISE = 1;
+/** The crash's tumble and the launch climb: the aircraft's states 3 and 4. */
+export const SKY_CRASH = 3;
+export const SKY_CLIMB = 4;
 
 /**
  * Its requests go to its side's spawn queues (sim.ts systemQueues): 0 base
@@ -162,14 +169,16 @@ export interface CaptainState {
   aim: number;
   /** What it flies at in ENGAGE (entity id), -1 = its destination. */
   move: number;
-  /** SKY_ENGAGE / SKY_CRUISE. */
+  /** SKY_ENGAGE / SKY_CRUISE / SKY_CRASH / SKY_CLIMB: the aircraft's state byte (+0xfa). */
   fly: number;
+  /** The state its construct left (`ai->byte_1d`, 0x004213c5), which a respawn restores. */
+  start: number;
   /** Destination (metres): the mode's place, home on a retreat, a pickup. */
   destX: number;
   destY: number;
   /** Retreat threshold: half its max health less rand 0..63 (`ai->word_1e`). */
   threshold: number;
-  /** Current speed, m/s (raised on a retreat, reset by a restore or respawn). */
+  /** Its speed word (`+0xf4`, raised on a retreat, reset by a restore or respawn). */
   speed: number;
   /** Current turn rate (`+0xf8`): the record's, x4 once when boosted home. */
   turn: number;
@@ -189,6 +198,7 @@ export function createCaptainState(): CaptainState {
     aim: -1,
     move: -1,
     fly: SKY_ENGAGE,
+    start: SKY_CRUISE,
     destX: 0,
     destY: 0,
     threshold: 0,
@@ -280,12 +290,24 @@ export function captainConstruct(state: SimState): void {
   if (me < 0) return;
   const c = state.captain;
   const level = captainLevel(state);
+  // The aircraft's construct first (0x00420380, its random heading drawn): the
+  // record's state byte 1 is CRUISE; spawn flag 4 starts it on the surface in
+  // the launch climb, flag 2 0x20000 wu up. The anchor it respawns at is the
+  // cruise placement spawnAvatar made.
+  c.fly = SKY_CRUISE;
+  const id = state.avatarId[me];
+  if (id >= 0) {
+    const s = state.map.spawns[me];
+    const ground = resolveHeight(state.map, s.x, s.y, s.layer);
+    if (placeAircraft(state, id, aircraftFlight(state, id), ground)) c.fly = SKY_CLIMB;
+    state.air.phase[id] = AIR_FLY;
+  }
+  c.start = c.fly;
   c.mode = SKY_MODE_DEFEND;
   c.think = 0;
   c.aim = -1;
   c.move = -1;
-  c.fly = SKY_ENGAGE;
-  c.speed = skySpeed(level);
+  c.speed = skySpeedRaw(level);
   c.turn = SKY_TURN_RATE;
   c.order = randInt(state, 2);
   redrawThreshold(state);
@@ -296,6 +318,10 @@ export function captainConstruct(state: SimState): void {
     if (tanks > SKY_OPENING_ORDER) tanks = SKY_OPENING_ORDER;
     state.unitQueue[me * UNIT_QUEUES + SKY_QUEUE_BASE_TANKS] += tanks;
     state.unitQueue[me * UNIT_QUEUES + SKY_QUEUE_BASE_JETS] += SKY_OPENING_ORDER - tanks;
+    // Mirrored into the count words (0x004214ad / 0x004214ca); with all ten
+    // tanks the jets' word is not written.
+    state.unitCount[me * 2] = tanks;
+    if (tanks < SKY_OPENING_ORDER) state.unitCount[me * 2 + 1] = SKY_OPENING_ORDER - tanks;
   }
 }
 
@@ -310,21 +336,35 @@ export function captainRespawn(state: SimState): void {
   if (id < 0) return;
   const c = state.captain;
   redrawThreshold(state);
-  c.speed = skySpeed(captainLevel(state));
+  c.speed = skySpeedRaw(captainLevel(state));
   c.turn = SKY_TURN_RATE;
   c.think = 0;
   c.aim = -1;
   c.move = -1;
   setMode(state, id, SKY_MODE_ROAM);
-  c.fly = SKY_ENGAGE;
   refreshDestination(state);
   const yaw = (randInt(state, 4096) / 4096) * TAU;
   state.ent.yaw[id] = yaw;
   state.ent.aimX[id] = cosLUT(yaw);
   state.ent.aimY[id] = sinLUT(yaw);
-  // It flies off along the new heading (steerHeading reads it from here).
-  state.ent.velX[id] = cosLUT(yaw) * c.speed;
-  state.ent.velY[id] = sinLUT(yaw) * c.speed;
+  // Level along the new heading, the steering cleared (0x00422c4d..0x00422ca6),
+  // in the state its construct left (`ai->byte_1d`: CRUISE, or the launch
+  // climb from its anchor on Joke, Slim and Ovmp).
+  const air = state.air;
+  air.hx[id] = Math.floor(cosLUT(yaw) * AIRCRAFT_HEADING_ONE);
+  air.hy[id] = 0;
+  air.hz[id] = Math.floor(sinLUT(yaw) * AIRCRAFT_HEADING_ONE);
+  air.sx[id] = 0;
+  air.sy[id] = 0;
+  air.sz[id] = 0;
+  air.vx[id] = 0;
+  air.vy[id] = 0;
+  air.vz[id] = 0;
+  air.upY[id] = AIRCRAFT_HEADING_ONE;
+  air.phase[id] = AIR_FLY;
+  state.ent.velX[id] = 0;
+  state.ent.velY[id] = 0;
+  c.fly = c.start;
 }
 
 /**
@@ -345,7 +385,7 @@ function restore(state: SimState, id: number): void {
   c.fly = SKY_ENGAGE;
   refreshDestination(state);
   c.think = 0;
-  c.speed = skySpeed(captainLevel(state));
+  c.speed = skySpeedRaw(captainLevel(state));
   c.turn = SKY_TURN_RATE;
 }
 
@@ -365,9 +405,9 @@ export function systemWarden(state: SimState): void {
   if (me < 0) return;
   const id = state.avatarId[me];
   if (id < 0) return; // down: systemSpawning brings it back
-  // Below zero it is going down this tick (systemDamageDeath): the original's
-  // operation 4 starts the crash before the commander ticks again.
-  if (state.ent.hp[id] <= 0) return;
+  // Below zero it is crashing (systemDamageDeath started it), and ticks on as
+  // the original's does (`sky_tick` runs in state 3): its retreat arm can
+  // restore it at home, a decision pass can break the tumble off.
   const c = state.captain;
   const level = captainLevel(state);
 
@@ -417,10 +457,13 @@ function captainRetreat(state: SimState, id: number, level: number): boolean {
     c.destX = hx;
     c.destY = hy;
     c.fly = SKY_CRUISE;
-    c.speed += c.speed / (1 << (4 - (level >> 2)));
+    c.speed += c.speed >> (4 - (level >> 2));
     c.aim = -1;
     return false;
   }
+  // Damaged and far from home in any other state (the climb, the crash): only
+  // the rethink (0x00421743 is CRUISE's arm).
+  if (c.fly !== SKY_CRUISE) return true;
   // Cruising home: the nearest health pickup on offer.
   const spots = state.map.pickups;
   let pick = -1;
@@ -812,14 +855,18 @@ function countTeam(state: SimState, archetype: number, team: number): number {
   return n;
 }
 
-/** Word 29: its tanks, alive or requested. */
+/**
+ * Word 29: its tanks as its count word has them — raised by its requests,
+ * lowered by its tanks' death script, so a request its spawner refused stays
+ * counted (sim.ts SimState.unitCount; `SKY_ST_CLASS_A_COUNT`, dispatch.c).
+ */
 function tankCount(state: SimState, me: number): number {
-  return countTeam(state, ARCHETYPE.RUNNER, me) + queuedUnits(state, me, false);
+  return state.unitCount[me * 2];
 }
 
-/** Word 30: its jets, alive or requested. */
+/** Word 30: its jets, likewise (`SKY_ST_CLASS_B_COUNT`). */
 function jetCount(state: SimState, me: number): number {
-  return countTeam(state, ARCHETYPE.GUARDIAN, me) + queuedUnits(state, me, true);
+  return state.unitCount[me * 2 + 1];
 }
 
 /**
@@ -839,6 +886,8 @@ function setMode(state: SimState, id: number, mode: number): void {
 /** Pay `cost` and queue `n` units on queue `q`. */
 function request(state: SimState, me: number, q: number, n: number, cost: number): void {
   state.unitQueue[me * UNIT_QUEUES + q] += n;
+  // ...and the count word with it (words 29 / 30, every spend block).
+  state.unitCount[me * 2 + (q & 1)] += n;
   // The request word the order scripts poll (words 44/45, 48..55).
   pushEvent(
     state.events,
@@ -1063,7 +1112,7 @@ function arcCos(k: number, level: number): number {
 /** Its target stays one: alive, an enemy, inside its 12 m engage range. */
 function aimValid(state: SimState, id: number, t: number): boolean {
   const ent = state.ent;
-  if (!ent.alive[t] || ent.hp[t] <= 0 || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
+  if (!ent.alive[t] || downed(state, t) || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
   const team = ent.team[t];
   if (team === ent.team[id] || team === TEAM_NEUTRAL) return false;
   return inWeaponRange(state, id, t);
@@ -1094,7 +1143,10 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
   const ent = state.ent;
   const c = state.captain;
   let anyDue = false;
-  const due0 = gunDue(state, 0);
+  // The gun is the aircraft's own shooter, stepped in the steering block only
+  // (0x00420c32: ENGAGE and CRUISE, never the climb or the crash); the missile
+  // and the bomb are `sky_tick`'s and step in every state (0x0042169b).
+  const due0 = (c.fly === SKY_ENGAGE || c.fly === SKY_CRUISE) && gunDue(state, 0);
   const due1 = gunDue(state, 1);
   const due2 = gunDue(state, 2);
   anyDue = due0 || due1 || due2;
@@ -1142,44 +1194,61 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
 // --- Flight ------------------------------------------------------------------
 
 /**
- * The commander's flight (`aircraft_fly`): in ENGAGE with a move target it flies
- * at the target, otherwise at its destination; inside the 1 m standoff it
- * reverses. It never patrols. It turns as every aircraft does (units.ts
- * steerHeading, at `c.turn`: the record's 4096, x4 once when boosted home), so
- * it flies its heading and circles what it attacks. Level flight at its level's
- * speed; terrain and walls are beneath it.
+ * The commander's flight (`aircraft_step` for type 0x25, 0x00420700): in the
+ * launch climb it rises (units.ts aircraftClimb) into ENGAGE; in the crash it
+ * tumbles (aircraftTumble) and its landing is its death (captainLanded); in
+ * ENGAGE with a move target it flies at the target, otherwise at its
+ * destination, reversing inside the 1 m standoff (the octagonal estimate,
+ * 0x00458000). It never patrols. It flies as every aircraft does (units.ts
+ * aircraftFly): its turn at `c.turn` (the record's 4096, x4 once when boosted
+ * home), its altitude the controller's over its level's record, its speed word
+ * `c.speed` less the bank's penalty.
  */
 function captainFly(state: SimState, id: number): void {
   const ent = state.ent;
   const c = state.captain;
+  const f = aircraftFlight(state, id);
+  if (c.fly === SKY_CLIMB) {
+    if (aircraftClimb(state, id, c.speed, f)) c.fly = SKY_ENGAGE;
+    return;
+  }
+  if (c.fly === SKY_CRASH) {
+    if (aircraftTumble(state, id)) captainLanded(state, id);
+    return;
+  }
   let tx = c.destX;
   let ty = c.destY;
   if (c.fly === SKY_ENGAGE && c.move >= 0) {
     tx = ent.posX[c.move];
     ty = ent.posY[c.move];
   }
-  let dx = tx - ent.posX[id];
-  let dy = ty - ent.posY[id];
-  if (Math.sqrt(dx * dx + dy * dy) < SKY_STANDOFF) {
-    dx = -dx;
-    dy = -dy;
-  }
-  // The aircraft's turn (units.ts steerHeading) at its current rate.
-  aircraftHeading(state, id);
-  steerHeading(headingScratch.x, headingScratch.y, dx, dy, c.turn);
-  dx = headingScratch.x;
-  dy = headingScratch.y;
-  const extent = worldExtent(state.map);
-  ent.velX[id] = dx * c.speed;
-  ent.velY[id] = dy * c.speed;
-  const x = Math.min(Math.max(ent.posX[id] + ent.velX[id] * TICK_DT, 0), extent);
-  const y = Math.min(Math.max(ent.posY[id] + ent.velY[id] * TICK_DT, 0), extent);
-  ent.posX[id] = x;
-  ent.posY[id] = y;
-  ent.yaw[id] = atan2Poly(dy, dx);
-  ent.aimX[id] = dx;
-  ent.aimY[id] = dy;
-  ent.animState[id] = ANIM_MOVING;
-  const ground = sampleHeight(state.map, x, y);
-  ent.height[id] = Math.max(ground, state.map.waterLevel) + WARDEN_ALTITUDE;
+  const dx = tx - ent.posX[id];
+  const dy = ty - ent.posY[id];
+  aircraftFly(state, id, dx, dy, octagonal(dx, dy) < SKY_STANDOFF, c.turn, c.speed, f);
+  ent.aimX[id] = cosLUT(ent.yaw[id]);
+  ent.aimY[id] = sinLUT(ent.yaw[id]);
+}
+
+/**
+ * Operation 4 on the captain below zero (sim.ts systemDamageDeath, at the
+ * tick's end as `cact_tick_expired` issues it): `aircraft_op4` puts it into the
+ * crash, always (0x004202ac), unless it is crashing already. A crash its
+ * decision pass or a restore broke off (they write ENGAGE or CRUISE) starts
+ * again from the heading it has then.
+ */
+export function captainCrash(state: SimState, id: number): void {
+  const c = state.captain;
+  if (c.fly === SKY_CRASH) return;
+  c.fly = SKY_CRASH;
+  aircraftCrash(state, id, c.speed);
+}
+
+/**
+ * The crash's landing (0x00420d5c..0x00420e70): the commander's death — its
+ * respawn countdown, death effects, First Death and deaths, the X1's Walker Kill
+ * by the serial resolved now, its death script's points — then state 5. Here
+ * the sim's down of the craft (sim.ts downEntity), from where it lies.
+ */
+function captainLanded(state: SimState, id: number): void {
+  downEntity(state, id);
 }

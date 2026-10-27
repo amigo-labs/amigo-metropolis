@@ -168,6 +168,14 @@ export interface ModelsArtifact {
    * 0x00458850, unshifted — 1/512 units added as world units).
    */
   readonly refs: ModelsRadii;
+  /**
+   * Each role's box Y half-extent, raw (16 wu, the halfword at +8), at the same
+   * model and frame as its radius: an aircraft's `word_6c` (`cact_model_select`
+   * 0x004297e0), whose `<< 4` raises its flight floor (RE aircraft.c 0x00420a31).
+   */
+  readonly halves: ModelsRadii;
+  /** The Sky Captain's record (its Cact id) per level 0..9. */
+  readonly skyCaptainTemplates: readonly number[];
   readonly dreadnought: {
     readonly hull: number;
     readonly hullSha: string;
@@ -280,6 +288,7 @@ function extractCobj(b: Uint8Array, at: { pos: number; size: number; total: numb
 
 /** 3DBB box fields (RE fcop/model.h): the centre's y, and the `radius_68` halfword. */
 const BOX_CY = 2;
+const BOX_HALF_Y = 8;
 const BOX_RADIUS = 12;
 
 /**
@@ -388,6 +397,22 @@ function buildRadii(
     neutral,
     skyCaptain,
   };
+}
+
+/** Each level's Sky Captain record: the one Cact template of its level band's role. */
+function skyCaptainTemplates(arena: FcopArena, re: ReModels): number[] {
+  const out: number[] = [];
+  for (const role of re.roles.sky_captain) {
+    const t = (role.templates ?? []).filter((x) => x.res === "Cact");
+    if (t.length !== 1)
+      throw new Error(`${arena.mission}: a Sky Captain band with ${t.length} records`);
+    for (const level of role.levels ?? []) out[level] = t[0].id;
+  }
+  for (let level = 0; level < 10; level++) {
+    if (out[level] === undefined)
+      throw new Error(`${arena.mission}: no Sky Captain record for level ${level}`);
+  }
+  return out;
 }
 
 /**
@@ -534,6 +559,8 @@ function buildModels(
     source,
     radii: buildRadii(arena, re, reRepo, walkFrames, BOX_RADIUS),
     refs: buildRadii(arena, re, reRepo, walkFrames, BOX_CY),
+    halves: buildRadii(arena, re, reRepo, walkFrames, BOX_HALF_Y),
+    skyCaptainTemplates: skyCaptainTemplates(arena, re),
     dreadnought: {
       hull: hull.cobj,
       hullSha: re.models[String(hull.cobj)].sha256_16,

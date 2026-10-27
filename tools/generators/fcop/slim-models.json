@@ -2,7 +2,7 @@
   "mission": "Slim",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "f3d4200fde09e6c81054c052d5551fd43491e4ac",
+    "commit": "c077cb2d088fbd2a011d2738dde848d3583cd4b0",
     "tool": "tools/gfx/pa_models.py; fixtures/missions (3DBB)"
   },
   "radii": {
@@ -39,6 +39,24 @@
     ],
     "skyCaptain": [-70, -70, -70, -49, -49, -49, -227, -227, -227, -196]
   },
+  "halves": {
+    "x1": {
+      "cobj": 15,
+      "walker": 189,
+      "hover": 89
+    },
+    "tank": 102,
+    "jet": 107,
+    "fortress": 175,
+    "dreadnought": 159,
+    "baseTurret": 156,
+    "neutral": [
+      152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152,
+      152, 152, 152, 152, 152, 152, 152, 152, 152, 152
+    ],
+    "skyCaptain": [181, 181, 181, 265, 265, 265, 483, 483, 483, 457]
+  },
+  "skyCaptainTemplates": [164, 164, 164, 347, 347, 347, 348, 348, 348, 349],
   "dreadnought": {
     "hull": 36,
     "hullSha": "2413db4f188f7a39",

@@ -64,7 +64,12 @@
 // the captain wins.
 // Integrated on top of SIM_VERSION 105-106 (the sustained weapons, the guns'
 // pitch): twenty tanks and the jet, no claim; the player shoots the captain
-// down twice and goes down once; no breach.
+// down twice and goes down once; no breach. Since SIM_VERSION 110 the aircraft
+// fly the original's altitude (the captain about 1.3 m over the coarse
+// envelope, its jets launched from the ground), a downed one tumbles before it
+// dies, and the captain's spending reads the count words: sixteen tanks and
+// three jets, no claim; the player shoots the captain down once (it dies where
+// its crash lands) and goes down once; no breach.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -122,10 +127,10 @@ describe("golden-04-warden beats", () => {
       }
     }
 
-    expect(bought.get(ARCHETYPE.RUNNER)).toBe(20);
-    expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(1);
+    expect(bought.get(ARCHETYPE.RUNNER)).toBe(16);
+    expect(bought.get(ARCHETYPE.GUARDIAN)).toBe(3);
     expect(claims).toBe(0);
-    expect(wardenDeaths).toBe(2);
+    expect(wardenDeaths).toBe(1);
     expect(avatarDeaths).toBe(1);
     expect(breachTick).toBe(-1);
     expect(breachTeam).toBe(-1);

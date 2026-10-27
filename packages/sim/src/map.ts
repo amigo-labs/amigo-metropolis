@@ -13,6 +13,7 @@ import urbanJungleJson from "../maps/urban-jungle.json";
 import veniceBeachJson from "../maps/venice-beach.json";
 import { ARCHETYPE } from "./archetypes";
 import {
+  type AircraftFlight,
   ARCHETYPE_RADIUS,
   AVATAR_HOVER_RADIUS,
   DREADNOUGHT_GUN_TURN,
@@ -24,11 +25,14 @@ import {
   ORIGINAL_BUY_HALF_L,
   ORIGINAL_BUY_HALF_W,
   ORIGINAL_CAPTURE_RANGE,
+  ORIGINAL_FORTRESS_FLIGHT,
+  ORIGINAL_JET_FLIGHT,
   ORIGINAL_JET_QUEUE_PERIOD,
   ORIGINAL_PICKUP_HALF_H,
   ORIGINAL_PICKUP_HALF_L,
   ORIGINAL_PICKUP_HALF_W,
   ORIGINAL_PICKUP_LIFT,
+  ORIGINAL_SKY_FLIGHT,
   ORIGINAL_TANK_QUEUE_PERIOD,
   ORIGINAL_TURRET_HP,
   ORIGINAL_UNIT_PROFILES,
@@ -414,6 +418,14 @@ export interface MapBase {
    * ORIGINAL_*_QUEUE_PERIOD where the arena imports none.
    */
   readonly queuePeriod: MapQueuePeriods;
+  /**
+   * The base jet spawner's and the Fortress spawner's flight blocks (their
+   * records' altitudes and spawn flags, their models' half-extents;
+   * balance.ts AircraftFlight): Mp's (ORIGINAL_JET_FLIGHT / _FORTRESS_FLIGHT)
+   * where the arena imports none.
+   */
+  readonly jetFlight: AircraftFlight;
+  readonly fortressFlight: AircraftFlight;
 }
 
 /**
@@ -583,6 +595,8 @@ export interface MapOutpost {
   readonly jetSpawn: readonly MapPoint[];
   /** Per team: this outpost's tank and jet queues' periods in engine ticks (MapQueuePeriods). */
   readonly queuePeriod: readonly MapQueuePeriods[];
+  /** Per team: this outpost's jet spawner's flight block (ORIGINAL_JET_FLIGHT where none). */
+  readonly jetFlight: readonly AircraftFlight[];
 }
 
 /**
@@ -739,6 +753,17 @@ export interface MapData {
    * ground (MUZZLE_OFFSET ahead, MUZZLE_HEIGHT up) where the arena imports none.
    */
   readonly turretGuns: MapTurretGuns;
+  /**
+   * The Sky Captain's flight block by level 0..9 (its record per level band;
+   * ORIGINAL_SKY_FLIGHT where the arena imports none).
+   */
+  readonly skyFlight: readonly AircraftFlight[];
+  /**
+   * The Sky Captain's missile's acceleration, the catalogue's weapon 8 +0x14
+   * raw: 0 on Mp, Conft, Hk and Ovmp (it leaves at its top speed), 0x7a on Slim
+   * and Joke (`cact_missile_spawn` 0x0044d103). 0 where the arena imports none.
+   */
+  readonly skyMissileAccel: number;
   /** The original Cnet graph. `undefined` → follow the `lanes` polylines. */
   readonly laneGraph: MapLaneGraph | undefined;
   /** Power-up spots. EMPTY → no pickups on this arena. */
@@ -998,6 +1023,8 @@ export interface MapJson {
     tankSpawn?: (number[] | { x: number; y: number; layer?: number })[];
     jetSpawn?: (number[] | { x: number; y: number; layer?: number })[];
     queuePeriod?: { tank: number; jet: number }[];
+    /** OPTIONAL, per team: the jet spawner's flight block (MapOutpost.jetFlight). */
+    jetFlight?: FlightJson[];
     plates: {
       spot: number;
       turrets: { x: number; y: number; weapon: number; hp: number; yaw: number; layer?: number }[];
@@ -1047,6 +1074,10 @@ export interface MapJson {
     neutral: number[];
     skyCaptain: number[];
   };
+  /** OPTIONAL: the Sky Captain's flight block per level 0..9 (MapData.skyFlight). */
+  skyFlight?: FlightJson[];
+  /** OPTIONAL: the Sky Captain's missile's raw acceleration (MapData.skyMissileAccel). */
+  skyMissileAccel?: number;
   /** OPTIONAL: each role's reference height (MapData.refHeights), the radii's shape. */
   refHeights?: {
     walker: number;
@@ -1228,6 +1259,18 @@ export interface MapBaseJson {
   jetSpawn?: number[] | { x: number; y: number; layer?: number };
   /** OPTIONAL: the base's queue periods in engine ticks (MapQueuePeriods). */
   queuePeriod?: { tank: number; jet: number };
+  /** OPTIONAL: the jet and Fortress spawners' flight blocks (MapBase.jetFlight). */
+  jetFlight?: FlightJson;
+  fortressFlight?: FlightJson;
+}
+
+/** An aircraft record's flight block in a map JSON (balance.ts AircraftFlight). */
+interface FlightJson {
+  altMin: number;
+  altCruise: number;
+  altMax: number;
+  halfY: number;
+  spawn: number;
 }
 
 function fail(id: string, reason: string): never {
@@ -1874,6 +1917,13 @@ export function loadMapFromJson(raw: MapJson): MapData {
       tankSpawn: point(b.tankSpawn ?? b.groundConsole, `base ${team} tank spawn`),
       jetSpawn: point(b.jetSpawn ?? b.airConsole, `base ${team} jet spawn`),
       queuePeriod: queuePeriodOf(b.queuePeriod, `base ${team} queues`),
+      jetFlight: flightOf(id, b.jetFlight, `base ${team} jet flight`, ORIGINAL_JET_FLIGHT),
+      fortressFlight: flightOf(
+        id,
+        b.fortressFlight,
+        `base ${team} fortress flight`,
+        ORIGINAL_FORTRESS_FLIGHT,
+      ),
     };
   });
 
@@ -1940,6 +1990,9 @@ export function loadMapFromJson(raw: MapJson): MapData {
         ),
         queuePeriod: perTeam(o.queuePeriod, "queuePeriod").map((q, t) =>
           queuePeriodOf(q, `${what} team ${t} queues`),
+        ),
+        jetFlight: perTeam(o.jetFlight, "jetFlight").map((f, t) =>
+          flightOf(id, f, `${what} team ${t} jet flight`, ORIGINAL_JET_FLIGHT),
         ),
       });
       if (!Array.isArray(o.plates)) fail(id, `${what} plates is not a list`);
@@ -2260,6 +2313,8 @@ export function loadMapFromJson(raw: MapJson): MapData {
     radii,
     refHeights: parseRefHeights(raw.refHeights, radii, id),
     turretGuns: parseTurretGuns(raw.turretGuns, radii.neutral.length, id),
+    skyFlight: skyFlightOf(id, raw.skyFlight),
+    skyMissileAccel: skyMissileAccelOf(id, raw.skyMissileAccel),
     laneGraph,
     pickups,
     triggerVolumes,
@@ -2269,6 +2324,46 @@ export function loadMapFromJson(raw: MapJson): MapData {
     lifts,
     coarse: parseCoarse(id, raw.coarse),
   };
+}
+
+/** A flight block, strictly: integer halfwords, altMin < altCruise < altMax (the gains divide by both bands). */
+function flightOf(
+  id: string,
+  raw: FlightJson | undefined,
+  what: string,
+  fallback: AircraftFlight,
+): AircraftFlight {
+  if (raw === undefined) return fallback;
+  if (!raw || typeof raw !== "object") fail(id, `${what} is not an object`);
+  const { altMin, altCruise, altMax, halfY, spawn } = raw;
+  for (const [k, v] of [
+    ["altMin", altMin],
+    ["altCruise", altCruise],
+    ["altMax", altMax],
+    ["halfY", halfY],
+    ["spawn", spawn],
+  ] as const) {
+    if (!Number.isInteger(v) || v < 0 || v > 0x7fff)
+      fail(id, `${what} ${k} is not a halfword (${v})`);
+  }
+  if (!(altMin < altCruise && altCruise < altMax)) fail(id, `${what} altitudes are not ordered`);
+  return { altMin, altCruise, altMax, halfY, spawn };
+}
+
+function skyMissileAccelOf(id: string, raw: number | undefined): number {
+  if (raw === undefined) return 0;
+  if (!Number.isInteger(raw) || raw < 0 || raw > 0x7fff)
+    fail(id, `skyMissileAccel ${raw} is not a halfword`);
+  return raw;
+}
+
+function skyFlightOf(id: string, raw: FlightJson[] | undefined): readonly AircraftFlight[] {
+  if (raw === undefined) return ORIGINAL_SKY_FLIGHT;
+  if (!Array.isArray(raw) || raw.length !== 10)
+    fail(id, "skyFlight needs one entry per level 0..9");
+  return raw.map((f, l) =>
+    flightOf(id, f, `sky captain level ${l} flight`, ORIGINAL_SKY_FLIGHT[l]),
+  );
 }
 
 function parseCoarse(id: string, raw: MapJson["coarse"]): MapCoarse | null {
@@ -2386,6 +2481,8 @@ export function createTestMap(): MapData {
     tankSpawn: { x: center + (team === 0 ? -12 : 12), y: center, layer: 0 },
     jetSpawn: { x: center, y: center + (team === 0 ? -12 : 12), layer: 0 },
     queuePeriod: { tank: ORIGINAL_TANK_QUEUE_PERIOD, jet: ORIGINAL_JET_QUEUE_PERIOD },
+    jetFlight: ORIGINAL_JET_FLIGHT,
+    fortressFlight: ORIGINAL_FORTRESS_FLIGHT,
   });
   return {
     id: TEST_MAP_ID,
@@ -2425,6 +2522,8 @@ export function createTestMap(): MapData {
     radii: defaultRadii(0),
     refHeights: defaultRefHeights(0),
     turretGuns: defaultTurretGuns(0),
+    skyFlight: ORIGINAL_SKY_FLIGHT,
+    skyMissileAccel: 0,
     laneGraph: undefined,
     pickups: [],
     triggerVolumes: [],

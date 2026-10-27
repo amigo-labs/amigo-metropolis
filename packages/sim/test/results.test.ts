@@ -130,7 +130,17 @@ describe("Created and Destroyed (spawn.c csac_credit_spawn, csac_on_spawned_deat
       state.ent.hp[id] = 0;
       state.ent.aux[id] = 0; // nobody's hit
     }
+    // A jet or Fortress that tumbles (A19) is destroyed where it lands.
+    const flying = () => {
+      for (let id = 0; id < state.ent.high; id++) {
+        const a = state.ent.archetype[id];
+        if (state.ent.alive[id] && (a === ARCHETYPE.GUARDIAN || a === ARCHETYPE.FORTRESS))
+          return true;
+      }
+      return false;
+    };
     step(state, idle);
+    for (let t = 0; t < 600 && flying(); t++) step(state, idle);
     expect(stat(state, 1, STAT_TANKS_DESTROYED)).toBe(1);
     expect(stat(state, 1, STAT_JETS_DESTROYED)).toBe(1);
     expect(stat(state, 1, STAT_DREADNOUGHTS_DESTROYED)).toBe(1);
@@ -262,15 +272,28 @@ describe("Walker Deaths, Walker Kills and First Death (player.c player_op4)", ()
     expect(stat(state, 1, STAT_WALKER_KILLS)).toBe(1);
     expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(0);
     // The captain goes down, by no one's hit: its deaths and its First Death,
-    // and no kill for the player.
+    // stamped where its crash lands (aircraft.c 0x00420df9), and no kill for
+    // the player.
     const w = state.avatarId[1];
     state.ent.hp[w] = 0;
-    const tick = state.tick;
+    let tick = state.tick;
     step(state, idle);
+    expect(state.avatarId[1]).toBe(w); // tumbling, not down yet
+    expect(stat(state, 1, STAT_WALKER_DEATHS)).toBe(0);
+    while (state.avatarId[1] >= 0) {
+      tick = state.tick;
+      step(state, idle);
+    }
     expect(stat(state, 1, STAT_WALKER_DEATHS)).toBe(1);
     expect(stat(state, 1, STAT_FIRST_DEATH)).toBe(tick * FRAME_CLOCK_PER_TICK);
     expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(0);
   });
+
+  /** Steps until the captain's crash has landed (it is down). */
+  function untilCaptainLands(state: SimState): void {
+    for (let t = 0; t < 600 && state.avatarId[1] >= 0; t++) step(state, idle);
+    expect(state.avatarId[1]).toBe(-1);
+  }
 
   /** A Sky Captain match with the captain at (x, y) on 1 health. */
   function captainAt(x: number, y: number): SimState {
@@ -288,11 +311,24 @@ describe("Walker Deaths, Walker Kills and First Death (player.c player_op4)", ()
     const state = captainAt(X, Y);
     const me = standAt(state, 0, X - 6, Y);
     hitscan(state, me, 0, 1, 0, 12, 10);
-    step(state, idle);
-    expect(state.avatarId[1]).toBe(-1);
+    // Resolved where the crash lands, the mech still the one that fired.
+    untilCaptainLands(state);
+    expect(state.avatarId[0]).toBe(me);
     expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(1);
     expect(stat(state, 1, STAT_WALKER_DEATHS)).toBe(1);
     expect(stat(state, 1, STAT_WALKER_KILLS)).toBe(0);
+  });
+
+  it("credits nobody when the mech that downed the Sky Captain went down before it landed", () => {
+    // The serial is resolved at the crash's end: a mech downed (and so, here,
+    // respawned) meanwhile no longer matches it (V7).
+    const state = captainAt(X, Y);
+    const me = standAt(state, 0, X - 6, Y);
+    hitscan(state, me, 0, 1, 0, 12, 10);
+    state.ent.hp[me] = 0;
+    untilCaptainLands(state);
+    expect(stat(state, 1, STAT_WALKER_DEATHS)).toBe(1);
+    expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(0);
   });
 
   it("credits nobody when the player's tank brings the Sky Captain down", () => {
@@ -300,8 +336,7 @@ describe("Walker Deaths, Walker Kills and First Death (player.c player_op4)", ()
     standAt(state, 0, 20, 20);
     const tank = spawnUnit(state, ARCHETYPE.RUNNER, 0, X - 6, Y);
     hitscan(state, tank, 0, 1, 0, 12, 10);
-    step(state, idle);
-    expect(state.avatarId[1]).toBe(-1);
+    untilCaptainLands(state);
     expect(stat(state, 1, STAT_WALKER_DEATHS)).toBe(1);
     expect(stat(state, 0, STAT_WALKER_KILLS)).toBe(0);
   });
@@ -311,9 +346,11 @@ describe("Walker Deaths, Walker Kills and First Death (player.c player_op4)", ()
     const me = standAt(state, 0, X - 6, Y);
     state.ent.hp[state.avatarId[1]] = 100;
     hitscan(state, me, 0, 1, 0, 12, 10); // a hit that does not bring it down
-    expect(state.rivalHit[1]).toBe(1);
-    state.ent.hp[state.avatarId[1]] = 0;
-    step(state, idle);
+    expect(state.rivalHit[1]).toBe(0); // only a hit below zero is remembered
+    state.ent.hp[state.avatarId[1]] = 5;
+    hitscan(state, me, 0, 1, 0, 12, 10);
+    expect(state.rivalHit[1]).toBe(state.ent.born[me]);
+    untilCaptainLands(state);
     while (state.avatarId[1] < 0) step(state, idle);
     expect(state.rivalHit[1]).toBe(0);
   });

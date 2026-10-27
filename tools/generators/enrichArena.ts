@@ -165,7 +165,12 @@ interface Logic {
     health: number;
     shooter: Shooter;
     groundY: number | null;
+    flight: RecordFlight;
   }[];
+  /** The Sky Captain records (type 37) and their flight blocks. */
+  skyCaptains: { id: number; flight: RecordFlight }[];
+  /** The type-98 catalogue's keys and raw accelerations. */
+  catalogue: { key: number; accelRaw: number }[];
   turrets: Turret[];
   neutrals: Turret[];
   pickups: {
@@ -1075,6 +1080,71 @@ function outpostQueuesOf(
     jetSpawn: out.map((o) => o.jetSpawn),
     queuePeriod: out.map((o) => o.queuePeriod),
   };
+}
+
+/** An aircraft record's flight block, raw (fcopLogic.ts PaFlight). */
+interface RecordFlight {
+  altMin: number;
+  altCruise: number;
+  altMax: number;
+  spawn: number;
+}
+
+/**
+ * The sim's flight block (balance.ts AircraftFlight) for the aircraft record
+ * `template`: its altitudes and spawn flags, and its model's Y half-extent
+ * (fcop-fidelity.md U4).
+ */
+function flightOf(
+  logic: Logic,
+  template: number,
+  halfY: number,
+  what: string,
+): { altMin: number; altCruise: number; altMax: number; halfY: number; spawn: number } {
+  const rec =
+    logic.aircraft.find((a) => a.id === template) ??
+    logic.skyCaptains.find((a) => a.id === template);
+  if (!rec) throw new Error(`${what}: no aircraft record ${template}`);
+  const f = rec.flight;
+  if (!(f.altMin < f.altCruise && f.altCruise < f.altMax)) {
+    throw new Error(`${what}: record ${template}'s altitudes are not ordered`);
+  }
+  return { altMin: f.altMin, altCruise: f.altCruise, altMax: f.altMax, halfY, spawn: f.spawn };
+}
+
+/**
+ * A base's jet and Flying Fortress spawner records' flight blocks: the jet
+ * spawner its jet shop requests, the Fortress spawner its heavy zone requests.
+ */
+function baseFlightOf(
+  rules: FcopRules,
+  logic: Logic,
+  models: ModelsArtifact,
+  slot: number,
+): {
+  jetFlight: ReturnType<typeof flightOf>;
+  fortressFlight: ReturnType<typeof flightOf>;
+} {
+  const jet = rules.buyTriggers.find((t) => t.slot === slot && t.kind === "jet");
+  const fort = rules.heavyZones.find((z) => z.slot === slot && z.unit === "flying_fortress");
+  if (!jet || !fort)
+    throw new Error(`${rules.mapId}: slot ${slot} lacks its jet shop or Fortress zone`);
+  return {
+    jetFlight: flightOf(logic, jet.template, models.halves.jet, `${rules.mapId} slot ${slot} jet`),
+    fortressFlight: flightOf(
+      logic,
+      fort.template,
+      models.halves.fortress,
+      `${rules.mapId} slot ${slot} Fortress`,
+    ),
+  };
+}
+
+/** The catalogue's weapon 8, the Sky Captain's missile: its raw acceleration. */
+function skyMissileAccelOf(logic: Logic, mapId: string): number {
+  const rows = logic.catalogue.filter((c) => c.key === 8);
+  if (rows.length !== 1) throw new Error(`${mapId}: ${rows.length} catalogue entries keyed 8`);
+  return rows[0].accelRaw;
 }
 
 /** Interns weapon profiles so identical originals share one index. */
@@ -2270,6 +2340,8 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
       ...unitProfiles(logic, base.team, table),
       ...heavyOf(rules, team, teamOfSlot, coreX, coreY, surf),
       ...baseQueuesOf(rules, slotOfTeam(team), surf),
+      // The jet and Fortress spawner records' flight (fcop-fidelity.md U4).
+      ...baseFlightOf(rules, logic, models, slotOfTeam(team)),
     };
   });
 
@@ -2345,6 +2417,12 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     tankPad: spotJson(pads[k].tank),
     jetPad: spotJson(pads[k].jet),
     ...outpostQueuesOf(rules, o.index, [slotOfTeam(0), slotOfTeam(1)], pads[k].tank, surf),
+    // Per team, its jet spawner record's flight (fcop-fidelity.md U4).
+    jetFlight: [slotOfTeam(0), slotOfTeam(1)].map((slot) => {
+      const shop = rules.outpostShop.find((q) => q.outpost === o.index && q.slot === slot);
+      if (!shop) throw new Error(`${mapId}: outpost ${o.index} has no shop for slot ${slot}`);
+      return flightOf(logic, shop.jetTemplate, models.halves.jet, `${mapId} outpost ${o.index}`);
+    }),
     plates: o.plates.map((plate) => {
       const neutral = plate.records.filter((r) => r.type === 36);
       if (neutral.length !== 1 || !neutralIndex.has(neutral[0].id)) {
@@ -2697,6 +2775,13 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     refHeights: refHeightsOf(models, turretSpots.length, mapId),
     // Each turret's gun on its base and its muzzle (fcop-fidelity.md G12).
     turretGuns: turretGunsOf(models, turretSpots.length, mapId),
+    // The Sky Captain's record per level: its flight, its model's half height
+    // (fcop-fidelity.md U3, U4).
+    skyFlight: models.skyCaptainTemplates.map((t, level) =>
+      flightOf(logic, t, models.halves.skyCaptain[level], `${mapId} Sky Captain level ${level}`),
+    ),
+    // Its missile's catalogue acceleration, raw (entry 8's +0x14; U3).
+    skyMissileAccel: skyMissileAccelOf(logic, mapId),
     laneGraph: {
       nodes: graph.nodes.map((n) => emitPoint(n.x, n.z, n.layer)),
       edges: graph.edges,

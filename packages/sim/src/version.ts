@@ -1591,4 +1591,31 @@
 //     killed, so it falls on and goes off where it lands, a fifth blast. No
 //     golden fires a powered Mortar or Plasma Flare: every hash holds,
 //     re-recorded for the header.
-export const SIM_VERSION = 109;
+// v110: every aircraft flies the original's altitude, launch and crash
+//     (fcop-fidelity.md U4, U3, A19, V7; RE aircraft.c, M3-OT). The heading is
+//     the original's 16.16 3-vector (units.ts AirState, hashed): its Y is the
+//     altitude controller's command (±0x1800 at the band's edges about the
+//     record's cruise altitude over the coarse envelope plus the model's half
+//     height, `* 3/32` of the error times the half band's reciprocal between,
+//     a 0x200 deadband), decayed by 7/8, the pitch clamped, the position
+//     clamped up to the floor (0x00420a31..0x00420c25) -- where every flyer
+//     rode AIR_ALTITUDE 6 m (jets, Fortress) or WARDEN_ALTITUDE 7 m (the
+//     captain) over the heightfield. The travel loses the bank's and pitch's
+//     `(0x200 - tilt) >> 9` (0x00420b84). Spawn flag 4 launches it from the
+//     surface in a straight climb into ENGAGE (0x0042087f), flag 2 starts it
+//     0x20000 wu up; the construct's random heading. The records' altitudes,
+//     spawn flags and models' half heights are imported per arena (map JSON
+//     jetFlight / fortressFlight / skyFlight). Shot down, the captain always,
+//     a jet or Fortress 10 in 16, tumbles (`aircraft_op4` 0x00420296; drag
+//     1/64, gravity `(3 - (rand & 0xf)) << 9`) and dies where it lands: its
+//     EV_DEATH, points, figures, the captain's respawn countdown and the X1's
+//     Walker Kill (the hitter's serial resolved then) move to the landing; it
+//     ticks on meanwhile (the captain's decision pass and its missile and
+//     bomb), stays a target, and is restored at home. The captain's missile on
+//     Slim and Joke leaves at an eighth of its speed and accelerates
+//     (`cact_missile_spawn` 0x0044d103; map JSON skyMissileAccel). The tank
+//     and jet gates and the captain's spend blocks read the count words 27..30
+//     (SimState.unitCount, hashed): raised at the purchase, lowered by a death,
+//     so a refused spawn drifts them. Every golden moves (the count words are
+//     hashed on every map); the PA and Warden goldens play differently.
+export const SIM_VERSION = 110;

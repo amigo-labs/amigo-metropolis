@@ -262,6 +262,11 @@ interface RawActor {
   ground_cast?: number;
   /** The height the original stands it at, metres (fcopTerrain.ts); null where no plate is. */
   ground_y?: number | null;
+  /** An aircraft's or Sky Captain's flight block, raw (readGroundCasts). */
+  flight?: PaFlight;
+  /** A type-98 catalogue entry's key byte and its raw acceleration (+0x14). */
+  weapon_key?: number;
+  weapon_accel?: number;
 }
 
 interface RawNetNode {
@@ -298,6 +303,10 @@ export const ACT = {
    * screen), it drives its Cnet like a tank, and its four guns sit on its hull.
    */
   DREADNOUGHT: 28,
+  /** The Sky Captain (dispatch.c), one record per level band. */
+  SKY_CAPTAIN: 37,
+  /** A type-98 weapon catalogue entry (prepare.c 0x0044eb80). */
+  WEAPON: 98,
   NEUTRAL_TURRET: 36,
   TRIGGER: 95,
   MARKER_14: 14,
@@ -376,7 +385,30 @@ export function readGroundCasts(
     stack(i32(blob, TACT_PAYLOAD + 4), i32(blob, TACT_PAYLOAD + 12));
   const metres = (y: number | null): number | null =>
     y === null ? null : Math.round(y * 10000) / 10000;
+  const i16 = (b: Uint8Array, o: number): number => ((b[o] | (b[o + 1] << 8)) << 16) >> 16;
   for (const a of actors) {
+    if (a.act_type === ACT.AIRCRAFT || a.act_type === ACT.SKY_CAPTAIN) {
+      // The flight block `aircraft_construct` reads (0x00420380): the three
+      // altitudes at payload +0x3a / +0x3c / +0x3e and the spawn flags at +0x35
+      // (RE fcop/actor_aircraft.h AREC_*), raw.
+      const blob = recordOf(a);
+      a.flight = {
+        altMin: i16(blob, TACT_PAYLOAD + 0x3a),
+        altCruise: i16(blob, TACT_PAYLOAD + 0x3c),
+        altMax: i16(blob, TACT_PAYLOAD + 0x3e),
+        spawn: blob[TACT_PAYLOAD + 0x35],
+      };
+      if (a.act_type === ACT.SKY_CAPTAIN) continue;
+    }
+    if (a.act_type === ACT.WEAPON) {
+      // A catalogue entry is the payload from +0x10 (`cact_weapon_catalogue_load`
+      // 0x0044eb80): its key byte, and +0x14 the acceleration before the
+      // loader's `* 256 / 300` (0x0044eb10).
+      const blob = recordOf(a);
+      a.weapon_key = blob[TACT_PAYLOAD + 0x10];
+      a.weapon_accel = i16(blob, TACT_PAYLOAD + 0x10 + 0x14);
+      continue;
+    }
     if (a.act_type === ACT.AIRCRAFT) {
       // No selector: `aircraft_construct` places it by the surface query from
       // its record's own point (0x00420501), whose y is 0 on every record.
@@ -525,6 +557,14 @@ export interface PaUnit {
   readonly spawnLimit: number;
 }
 
+/** An aircraft record's flight block, raw (sim balance.ts AircraftFlight, less the model's half height). */
+export interface PaFlight {
+  readonly altMin: number;
+  readonly altCruise: number;
+  readonly altMax: number;
+  readonly spawn: number;
+}
+
 export interface PaAircraft {
   readonly id: number;
   readonly x: number;
@@ -544,6 +584,7 @@ export interface PaAircraft {
    * record's point at y 0 (fcopTerrain.ts surfaceHeight). null where no plate is.
    */
   readonly groundY: number | null;
+  readonly flight: PaFlight;
 }
 
 export interface PaProp {
@@ -620,6 +661,10 @@ export interface PaLogic {
   readonly triggers: readonly PaTrigger[];
   readonly units: readonly PaUnit[];
   readonly aircraft: readonly PaAircraft[];
+  /** The Sky Captain records (type 37), their flight blocks. */
+  readonly skyCaptains: readonly { readonly id: number; readonly flight: PaFlight }[];
+  /** The type-98 catalogue: each entry's key and raw acceleration (+0x14). */
+  readonly catalogue: readonly { readonly key: number; readonly accelRaw: number }[];
   readonly props: readonly PaProp[];
   readonly nets: readonly PaNet[];
   /** Types 14/89: extracted for provenance only (fcop-logic.md §8.5). */
@@ -663,6 +708,12 @@ function turret(a: RawActor): PaTurret {
     groundCast: castOf(a),
     groundY: a.ground_y ?? null,
   };
+}
+
+/** An aircraft's or Sky Captain's flight block, which readGroundCasts reads for every one. */
+function flightOf(a: RawActor): PaFlight {
+  if (!a.flight) throw new Error(`type-${a.act_type} record ${a.matching} has no flight block`);
+  return a.flight;
 }
 
 /** The record's height selector, which every type that reads one must carry. */
@@ -813,7 +864,15 @@ export function buildPaLogic(
         shooter: shooter(p),
         spawnTicks: a.spawn_ticks ?? 0,
         groundY: a.ground_y ?? null,
+        flight: flightOf(a),
       };
+    }),
+    skyCaptains: of(ACT.SKY_CAPTAIN).map((a) => ({ id: a.matching, flight: flightOf(a) })),
+    catalogue: of(ACT.WEAPON).map((a) => {
+      if (a.weapon_key === undefined || a.weapon_accel === undefined) {
+        throw new Error(`type-98 record ${a.matching} was not read from the container`);
+      }
+      return { key: a.weapon_key, accelRaw: a.weapon_accel };
     }),
     props: of(ACT.DYNAMIC_PROP).map((a) => ({
       id: a.matching,

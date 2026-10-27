@@ -12,7 +12,8 @@ import {
   AVATAR_HP,
   DIFFICULTY_NORMAL,
   SKY_RECORD_HP,
-  WARDEN_ALTITUDE,
+  WU_PER_METRE,
+  wardenLevel,
 } from "../src/balance";
 import { createTickInputs } from "../src/inputs";
 import { loadMapFromJson, type MapJson, sampleHeight } from "../src/map";
@@ -180,7 +181,9 @@ describe("spawnSandbox", () => {
     const turret = spawnSandbox(sim, "turret-defense", 0, 30, 30);
     expect(sim.ent.height[turret]).toBe(ground);
     const warden = spawnSandbox(sim, "warden", 0, 30, 30);
-    expect(sim.ent.height[warden]).toBe(Math.max(ground, sim.map.waterLevel) + WARDEN_ALTITUDE);
+    // Its record's cruise altitude over the surface (aircraft_construct 0x00420501).
+    const f = sim.map.skyFlight[wardenLevel(sim.wardenDifficulty)];
+    expect(sim.ent.height[warden]).toBe(ground + (f.altCruise << 4) / WU_PER_METRE);
   });
 
   it("keeps yaw and the aim vector consistent for structures", () => {

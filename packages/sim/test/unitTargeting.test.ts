@@ -23,7 +23,7 @@ import { segmentBlocked } from "../src/collision";
 import { createTickInputs } from "../src/inputs";
 import { getMapById, LA_CANTINA_ID } from "../src/map";
 import { createSim, type SimState, spawnUnit, step } from "../src/sim";
-import { aircraftEngaged } from "../src/units";
+import { AIR_CLIMB, aircraftEngaged } from "../src/units";
 
 const map = getMapById(LA_CANTINA_ID);
 const idle = createTickInputs();
@@ -112,21 +112,32 @@ describe("a PA jet is the original's aircraft", () => {
   }
 
   it("flies at a target inside its leash and circles it without ever stopping", () => {
-    // It starts in CRUISE on its 5 s cruise dwell, then ENGAGEs (20 s, or until
-    // it leaves its box) and CRUISEs again (aircraft_step 0x004207eb). In
-    // ENGAGE it flies at the target, bending its heading toward it
-    // (steerHeading, 81-190 degrees a second at 4 m/s: a turning circle
-    // 2.4-5.6 m across) and reversing inside the 1 m standoff, so it loops
-    // about the target rather than sitting on it.
+    // Mp's jet records carry spawn flag 4: it starts on the surface in the launch
+    // climb, straight up at `speed * delta >> 9` until it clears its cruise
+    // altitude over the envelope, and comes out in ENGAGE (aircraft_step
+    // 0x0042087f). In ENGAGE it flies at the target, bending its heading toward
+    // it (81-190 degrees a second at up to 4 m/s, slowed by its bank) and
+    // reversing inside the 1 m standoff, so it loops about the target rather
+    // than sitting on it; the dwell then CRUISEs it (0x004207eb).
     const { state, ent, g, foe, park } = jetWith(10, 6);
+    expect(state.air.phase[g]).toBe(AIR_CLIMB);
     const ds: number[] = [];
     let engagedAt = -1;
     let cruisedAgain = false;
+    let slowest = Infinity;
     for (let t = 0; t < 30 * 60; t++) {
       park();
+      const h = ent.height[g];
+      const climbing = state.air.phase[g] === AIR_CLIMB;
       step(state, idle);
       const v = Math.hypot(ent.velX[g], ent.velY[g]);
-      expect(v).toBeCloseTo(GUARDIAN_AIRCRAFT_SPEED, 5);
+      if (climbing) {
+        expect(v).toBe(0);
+        expect(ent.height[g]).toBeGreaterThan(h);
+        continue;
+      }
+      expect(v).toBeLessThanOrEqual(GUARDIAN_AIRCRAFT_SPEED + 0.01); // whole world units a tick
+      slowest = Math.min(slowest, v);
       if (aircraftEngaged(state, g)) {
         if (engagedAt < 0) engagedAt = t;
         ds.push(Math.hypot(ent.posX[g] - ent.posX[foe], ent.posY[g] - ent.posY[foe]));
@@ -134,9 +145,13 @@ describe("a PA jet is the original's aircraft", () => {
         cruisedAgain = true;
       }
     }
-    expect(engagedAt).toBe(150); // 1500 units of cruise dwell, 10 a tick: below 0 on the 151st
+    expect(engagedAt).toBeGreaterThan(0); // out of the climb into ENGAGE
+    expect(engagedAt).toBeLessThan(90);
     expect(cruisedAgain).toBe(true);
     expect(ent.ammoB[g] - 1).toBe(foe);
+    expect(slowest).toBeLessThan(GUARDIAN_AIRCRAFT_SPEED); // the bank's penalty
+    // Horizontal: the bank and pitch slow the travel, a climb or dive tilts it.
+    expect(slowest).toBeGreaterThan(GUARDIAN_AIRCRAFT_SPEED / 4);
     ds.sort((a, b) => a - b);
     expect(ds[ds.length >> 1]).toBeLessThan(10);
     expect(ds[0]).toBeLessThan(2);

@@ -35,7 +35,8 @@ import {
   PROFILE_NEUTRAL_TURRET,
   PROFILE_TEAM_TURRET,
   SKY_RECORD_HP,
-  WARDEN_ALTITUDE,
+  WU_PER_METRE,
+  wardenLevel,
 } from "./balance";
 import { despawn, spawn } from "./entities";
 import { sampleHeight, worldExtent } from "./map";
@@ -254,7 +255,8 @@ export function spawnSandbox(
   const ground = sampleHeight(state.map, x, y);
   ent.height[id] =
     def.archetype === ARCHETYPE.WARDEN
-      ? Math.max(ground, state.map.waterLevel) + WARDEN_ALTITUDE
+      ? ground +
+        (state.map.skyFlight[wardenLevel(state.wardenDifficulty)].altCruise << 4) / WU_PER_METRE
       : ground;
   ent.hp[id] = maxHpFor(state, def.archetype, t < 0 ? 0 : t);
   ent.ownerId[id] = t;

@@ -3,7 +3,7 @@
   "mapId": "hollywood-keys",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "44fd3cc06234fed356bee3da3162d45bb88cf296",
+    "commit": "c077cb2d088fbd2a011d2738dde848d3583cd4b0",
     "extractor": "tools/gfx/extract_logic.py"
   },
   "frame": {
@@ -2128,7 +2128,13 @@
         "targetingDelayRaw": 16
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 1228,
+        "altCruise": 1331,
+        "altMax": 1433,
+        "spawn": 2
+      }
     },
     {
       "id": 8,
@@ -2151,7 +2157,13 @@
         "targetingDelayRaw": 16
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 1228,
+        "altCruise": 1331,
+        "altMax": 1433,
+        "spawn": 2
+      }
     },
     {
       "id": 33,
@@ -2174,7 +2186,13 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 34,
@@ -2197,7 +2215,13 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 91,
@@ -2220,7 +2244,13 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 99,
@@ -2243,7 +2273,13 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 145,
@@ -2266,7 +2302,13 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 155,
@@ -2289,7 +2331,13 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 174,
@@ -2312,7 +2360,13 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 175,
@@ -2335,7 +2389,13 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 206,
@@ -2358,7 +2418,13 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
     },
     {
       "id": 207,
@@ -2381,7 +2447,89 @@
         "targetingDelayRaw": 32
       },
       "spawnTicks": 300,
-      "groundY": -0.9687
+      "groundY": -0.9687,
+      "flight": {
+        "altMin": 819,
+        "altCruise": 921,
+        "altMax": 1024,
+        "spawn": 2
+      }
+    }
+  ],
+  "skyCaptains": [
+    {
+      "id": 31,
+      "flight": {
+        "altMin": 614,
+        "altCruise": 655,
+        "altMax": 716,
+        "spawn": 8
+      }
+    },
+    {
+      "id": 46,
+      "flight": {
+        "altMin": 614,
+        "altCruise": 655,
+        "altMax": 716,
+        "spawn": 8
+      }
+    },
+    {
+      "id": 64,
+      "flight": {
+        "altMin": 614,
+        "altCruise": 655,
+        "altMax": 716,
+        "spawn": 8
+      }
+    },
+    {
+      "id": 66,
+      "flight": {
+        "altMin": 614,
+        "altCruise": 655,
+        "altMax": 716,
+        "spawn": 8
+      }
+    }
+  ],
+  "catalogue": [
+    {
+      "key": 1,
+      "accelRaw": 0
+    },
+    {
+      "key": 2,
+      "accelRaw": 0
+    },
+    {
+      "key": 3,
+      "accelRaw": 0
+    },
+    {
+      "key": 4,
+      "accelRaw": 0
+    },
+    {
+      "key": 5,
+      "accelRaw": 0
+    },
+    {
+      "key": 6,
+      "accelRaw": 0
+    },
+    {
+      "key": 7,
+      "accelRaw": 0
+    },
+    {
+      "key": 8,
+      "accelRaw": 0
+    },
+    {
+      "key": 9,
+      "accelRaw": 0
     }
   ],
   "props": [

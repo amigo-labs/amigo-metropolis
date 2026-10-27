@@ -1669,7 +1669,6 @@ export const RUNNER_SPEED = 4;
 export const JUGGERNAUT_SPEED = 2.5;
 
 // Unit movement shared knobs.
-export const AIR_ALTITUDE = 6; // flyers ride this high above ground/water
 export const WAYPOINT_RADIUS = 3; // lane waypoint advance distance
 /**
  * Waypoint advance distance of the AUTHORING road walker (roads.ts `walkRoad`),
@@ -1744,6 +1743,9 @@ export const ROUTE_CONE_COS = 0xf600 / 0x10000;
  */
 export const GUARDIAN_AIRCRAFT_SPEED = 2048 / 512; // (raw << 12) / 300 >> 8 per tick at 300 Hz
 export const FORTRESS_AIRCRAFT_SPEED = 2457 / 512;
+/** The two records' speed words, `(raw << 12) / 300` (the construct, 0x004204bc). */
+export const GUARDIAN_AIRCRAFT_SPEED_RAW = Math.floor((2048 << 12) / 300);
+export const FORTRESS_AIRCRAFT_SPEED_RAW = Math.floor((2457 << 12) / 300);
 /**
  * The PA aircraft's target search (`aircraft_step` 0x00420752): every 0x384 +
  * rand 0..0x1ff engine units (3.0-4.7 s) it takes the nearest enemy within the
@@ -1813,8 +1815,9 @@ export const AIRCRAFT_REVERSE_JITTER = 0x80;
  * hardest turn (5120) is 81..190°/s at 30 fps, the Sky Captain's (4096) 65..152°/s,
  * 262..621°/s boosted. Every PA jet and Flying Fortress record carries 5120,
  * every Sky Captain 4096 (all six arenas). Metropolis steps it once a tick with
- * delta = AIRCRAFT_DELTA_UNITS; the heading's Y (the altitude command, its 7/8
- * decay and the pitch clamp) and the bank's speed penalty are not modelled.
+ * delta = AIRCRAFT_DELTA_UNITS; the heading's Y is the altitude controller's
+ * (units.ts flyHeading, verticalCommand), the travel loses the bank's penalty
+ * (travelWu) since SIM_VERSION 106.
  */
 export const AIRCRAFT_TURN_RATE = 5120;
 export const SKY_TURN_RATE = 4096;
@@ -1832,6 +1835,74 @@ export const AIRCRAFT_STEP_BITS = 15;
  */
 export const SKY_TURN_BOOST_SHIFT = 2;
 export const SKY_TURN_BOOST_RADIUS = 0x14000 / 8192;
+
+// --- The aircraft's altitude, launch and crash (RE aircraft.c; fcop-fidelity.md U4, U3, A19) ---
+/**
+ * An aircraft record's flight block, raw as the construct reads it
+ * (`aircraft_construct` 0x00420380): the three altitudes (payload +0x3a / +0x3c
+ * / +0x3e, `<< 4` wu above the floor), the spawn flags (+0x35) and the model's
+ * Y half-extent (`word_6c`, the 3DBB box-0 halfword at +8 of the frame the
+ * model holds, `cact_model_select` 0x004297e0), whose `<< 4` raises the floor.
+ */
+export interface AircraftFlight {
+  readonly altMin: number;
+  readonly altCruise: number;
+  readonly altMax: number;
+  readonly halfY: number;
+  readonly spawn: number;
+}
+/** Spawn flag 0x02: start 0x20000 wu (16 m) above the placement (0x00420592). */
+export const AIRCRAFT_SPAWN_HIGH = 0x02;
+/** Spawn flag 0x04: start on the surface in the launch climb (0x0042059b). */
+export const AIRCRAFT_SPAWN_CLIMB = 0x04;
+export const AIRCRAFT_SPAWN_HIGH_RISE = 0x20000;
+/**
+ * Mp's records, for an arena that imports none: every jet (Csac 33/34, 91/99,
+ * 145/155, 174/175, 206/207) 819 / 921 / 1024 with spawn flags 0x0c (XZ and the
+ * launch climb), model Cobj 22's half-extent 107; the Flying Fortress (Csac 6/8)
+ * the same altitudes, flags 0x02 (HIGH), Cobj 41's 175.
+ */
+export const ORIGINAL_JET_FLIGHT: AircraftFlight = {
+  altMin: 819,
+  altCruise: 921,
+  altMax: 1024,
+  halfY: 107,
+  spawn: 0x0c,
+};
+export const ORIGINAL_FORTRESS_FLIGHT: AircraftFlight = {
+  altMin: 819,
+  altCruise: 921,
+  altMax: 1024,
+  halfY: 175,
+  spawn: 0x02,
+};
+/**
+ * Mp's Sky Captain records by level band (Cact 287 levels 0-2, 295 3-5, 296
+ * 6-8, 297 9): 614 / 655 / 716, flags 0, Cobjs 54 / 56 / 57 / 58 (half-extents
+ * 181 / 265 / 483 / 457), for an arena that imports none.
+ */
+export const ORIGINAL_SKY_FLIGHT: readonly AircraftFlight[] = [
+  181, 181, 181, 265, 265, 265, 483, 483, 483, 457,
+].map((halfY) => ({ altMin: 614, altCruise: 655, altMax: 716, halfY, spawn: 0 }));
+/**
+ * The vertical command saturates at ±0x1800 below `floor + altMin << 4` and
+ * above `floor + altMax << 4`; between, `(target - y) * gain * 3 >> 5` with the
+ * gain the reciprocal of the half band, and a magnitude of 0x200 or less is
+ * dropped (0x00420a60..0x00420af2).
+ */
+export const AIRCRAFT_VERT_MAX = 0x1800;
+export const AIRCRAFT_VERT_DEADBAND = 0x200;
+/** The heading's Y is clamped to ±0x8000 of its 15-bit rescale (0x00420b5b). */
+export const AIRCRAFT_PITCH_LIMIT = 0x8000;
+/** The up vector's Y bias the bank is built against (0x00420c61, 0x00420ee3). */
+export const AIRCRAFT_UP_BIAS = 0x2000;
+/**
+ * The crash (`aircraft_op4` 0x00420296): the Sky Captain always, a jet or
+ * Flying Fortress when `(rand & 0xf) < 0xa` (10 times in 16), freezes heading x
+ * speed as its velocity and draws three `(rand & 0xfff) - 0x800` as its tumble.
+ */
+export const AIRCRAFT_CRASH_ROLL = 0xa;
+export const AIRCRAFT_TUMBLE_SPAN = 0x1000;
 
 export const UNIT_SEPARATION_RADIUS = 2.4; // friendly ground units push apart
 export const UNIT_SEPARATION_PUSH = 0.5; // fraction of overlap resolved per tick
@@ -1884,14 +1955,13 @@ export function skyMaxHp(level: number): number {
  * 0, 3.60 at 3, 4.51 at 9. Was WARDEN_SPEED 10.
  */
 export const SKY_RECORD_SPEED = 25163;
-export function skySpeed(level: number): number {
-  const internal = SKY_RECORD_SPEED + (level < 3 ? (level - 3) * 0x800 : (level - 3) * 0x420);
-  return (internal * 300) / 256 / 8192;
+/** The construct's speed word at a level (`+0xf4`, the units `aircraft_fly` reads). */
+export function skySpeedRaw(level: number): number {
+  return SKY_RECORD_SPEED + (level < 3 ? (level - 3) * 0x800 : (level - 3) * 0x420);
 }
-
-/** Cruise height above ground/water: Metropolis' (the record's 1.28 m is above a
- * coarse ground envelope the heightfield does not carry). */
-export const WARDEN_ALTITUDE = 7;
+export function skySpeed(level: number): number {
+  return (skySpeedRaw(level) * 300) / 256 / 8192;
+}
 
 /**
  * Rethink: the decision pass runs when the countdown goes negative and reloads it
@@ -2001,8 +2071,9 @@ export const SKY_BOMB_BLAST = 3.2;
  * no acceleration (+0x14 is 0 on Mp, Conft, Hk and Ovmp) the round leaves at
  * that speed and keeps it (`cact_missile_spawn` 0x0044d103: `top << 4` when
  * the acceleration is 0). Slim's and Joke's entry carries an acceleration of
- * 0x7a, so there it leaves at `top * 2` and speeds up to it within 0.2 s: not
- * modelled, the captain's weapons are one table on every arena.
+ * 0x7a, so there it leaves at `top * 2`, an eighth, and speeds up by `delta *
+ * 104 / 16` a tick to it within 0.2 s (MapData.skyMissileAccel, imported per
+ * arena; sim.ts fireWardenMissile) since SIM_VERSION 106.
  */
 export const SKY_MISSILE_SPEED_RAW = 8192;
 /**

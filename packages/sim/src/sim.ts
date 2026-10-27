@@ -12,6 +12,7 @@
 
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
+  AIRCRAFT_CRASH_ROLL,
   ARC_FREE_AIM_DISTANCE,
   ARC_ROUND_RANGE_WU,
   ARCHETYPE_MAX_HP,
@@ -180,7 +181,6 @@ import {
   WALKER_STEEP_TILT,
   WALKER_STOP_SPEED,
   WALL_PUSH,
-  WARDEN_ALTITUDE,
   WEAPON_UNITS_PER_TICK,
   type WeaponRecord,
   WU_PER_METRE,
@@ -223,6 +223,7 @@ import {
   EV_SHIELD_ARC_STEP,
   EV_SHOT,
   EV_SUNK,
+  EV_TOUCH,
   EV_TRANSFORM,
   EV_TRANSFORM_REFUSED,
   EV_TURRET_LOST,
@@ -283,6 +284,7 @@ import {
   cosUnits,
   octagonalLength,
   rand01,
+  randInt,
   randU32,
   sinLUT,
   sinUnits,
@@ -310,7 +312,13 @@ import {
   systemSustain,
 } from "./sustain";
 import {
+  AIR_CRASH,
+  AIR_LANDED,
+  type AirState,
+  aircraftCrash,
   aircraftEngaged,
+  airSpeedRaw,
+  createAirState,
   isAirUnit,
   isGroundUnit,
   isUnit,
@@ -351,14 +359,17 @@ import {
 import {
   type CaptainState,
   captainConstruct,
+  captainCrash,
   captainCredit,
   captainMaxHp,
   captainRespawn,
   captainRestore,
   createCaptainState,
+  SKY_CRASH,
   systemWarden,
 } from "./warden";
 import {
+  acceleration,
   DEFAULT_LOADOUT,
   difficultyAmmo,
   EXTRA_WEAPON_RIOT_SHIELD,
@@ -612,12 +623,22 @@ export interface SimState {
    * the captain (its tally, its rethink zeroed) or, with two viewports, the
    * other slot's Walker Kills, only when that actor, or the owner a round's id
    * carries, is the captain or the other mech (`player_op4`
-   * 0x004477ab..0x00447821). The Sky Captain's slot holds the same for the hits
-   * on the captain — 1 when the last was the X1's own craft — which its death
-   * reads for the X1's Walker Kills (aircraft.c 0x00420e1c..0x00420e57).
-   * Cleared at the respawn.
+   * 0x004477ab..0x00447821). The Sky Captain's slot holds, for the last hit that
+   * left the captain down, the life (`born`) of the X1 whose craft it was — 0
+   * for anyone else's — which the landing of its crash resolves for the X1's
+   * Walker Kills (aircraft.c 0x00420e1c..0x00420e57: the serial, at the crash's
+   * end). Cleared at the respawn.
    */
-  readonly rivalHit: Uint8Array;
+  readonly rivalHit: Uint32Array;
+  /**
+   * Each side's tanks and jets as its count words have them (state words 27 /
+   * 28 for slot 0, 29 / 30 for slot 1; index team * 2 + 1 for jets): raised at
+   * the purchase or request, lowered by a unit's death script — so a unit its
+   * spawner refused (20 alive) stays counted for good, the original's drift
+   * (fcop-fidelity.md U3, R18). The purchase gates and the Sky Captain's spend
+   * blocks read these against 20.
+   */
+  readonly unitCount: Int32Array;
   /**
    * The results page's twelve halfwords per side (stats.ts STAT_*, keys 0..11)
    * at `team * STAT_HALVES + key`: a player's view block +0x00, the Sky
@@ -649,6 +670,13 @@ export interface SimState {
    * their spawn.
    */
   readonly gunYaw: Int16Array;
+  /**
+   * Every aircraft's flight in the original's integers (units.ts AirState): the
+   * jets', the Flying Fortresses' and the Sky Captain's heading, steer, crash
+   * tumble, bank and phase, by entity id. Set at their spawn, hashed for the
+   * live ones.
+   */
+  readonly air: AirState;
   /**
    * The Dreadnought hull's walk per side (fcop-fidelity.md G8, I6; RE type5.c
    * 469-472): an AnmD block per entity id on the side's `juggernaut.walk` track,
@@ -801,7 +829,12 @@ export function spawnAvatar(state: SimState, player: number): number {
   // Feature layer (issue #33): spawn height is the surface the spawn sits on,
   // not always the ground under it. layer 0 → sampleHeight (bit-identical).
   const ground = resolveHeight(state.map, s.x, s.y, s.layer);
-  ent.height[id] = warden ? Math.max(ground, state.map.waterLevel) + WARDEN_ALTITUDE : ground;
+  // The captain at its anchor: `alt_cruise << 4` over the surface its construct
+  // placed it on (0x00420501; the respawn puts it back there, 0x00422c85).
+  ent.height[id] = warden
+    ? ground +
+      (state.map.skyFlight[wardenLevel(state.wardenDifficulty)].altCruise << 4) / WU_PER_METRE
+    : ground;
   // A spawn on a lift (Slim, Joke) stands on its top within a step.
   if (!warden && state.map.lifts.length > 0) {
     ent.height[id] = avatarSurface(state, s.x, s.y, ground, false).height;
@@ -1160,8 +1193,7 @@ export function spawnUnit(
   } else {
     // The original's aircraft (units.ts moveAircraft): patrols its anchor, the
     // spawner it was built at (mode 0 base, 1 + k outpost k).
-    startAircraft(state, id);
-    snapUnitHeight(state, id, true);
+    startAircraft(state, id, ent.height[id]);
   }
   return id;
 }
@@ -1222,13 +1254,15 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     loadoutSpecial: new Uint8Array(MAX_PLAYERS),
     difficulty: new Uint8Array(MAX_PLAYERS).fill(DIFFICULTY_NORMAL),
     avatarSinking: new Uint8Array(MAX_PLAYERS),
-    rivalHit: new Uint8Array(MAX_PLAYERS),
+    rivalHit: new Uint32Array(MAX_PLAYERS),
+    unitCount: new Int32Array(MAX_PLAYERS * 2),
     statHalves: new Uint16Array(MAX_PLAYERS * STAT_HALVES),
     pointsScored: new Uint32Array(MAX_PLAYERS),
     firstDeath: new Uint32Array(MAX_PLAYERS),
     firstOutpost: new Uint32Array(MAX_PLAYERS),
     formTime: new Uint32Array(MAX_PLAYERS * 2),
     gunYaw: new Int16Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
+    air: createAirState(),
     gunClock: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunPhase: new Uint8Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     gunTarget: new Int16Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
@@ -2173,7 +2207,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
  */
 function isLockable(state: SimState, player: number, selfId: number, t: number): boolean {
   const ent = state.ent;
-  if (t === selfId || !ent.alive[t] || ent.hp[t] <= 0) return false;
+  if (t === selfId || !ent.alive[t] || downed(state, t)) return false;
   const team = ent.team[t];
   if (team === player) return false;
   const arch = ent.archetype[t];
@@ -2476,19 +2510,20 @@ export function systemBuy(state: SimState, player: number, id: number): void {
   if (archetype < 0) return; // not on a purchase spot: the press is not a purchase
 
   // The spot's own gates (fcop-fidelity.md R9, R10), refused out loud: the
-  // points, the 20-alive cap of tanks and jets — a queued unit counts from its
-  // purchase, as the original's count word does (R18) — and a heavy zone whose
+  // points, the 20 cap of tanks and jets on the side's count word (the shop
+  // scripts' `20 > word`: raised by every purchase, lowered by a death, so a
+  // unit its spawner refused stays counted; U3, R18) — and a heavy zone whose
   // unit lives (the original's latch, reopened by that unit's death script).
-  let alive = countAliveOfArchetype(state, archetype, player);
-  if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN) {
-    alive += queuedUnits(state, player, archetype === ARCHETYPE.GUARDIAN);
-  }
+  const counted = archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN;
+  const word = player * 2 + (archetype === ARCHETYPE.GUARDIAN ? 1 : 0);
+  const alive = counted ? state.unitCount[word] : countAliveOfArchetype(state, archetype, player);
   if (state.points[player] < cost || alive >= aliveLimit(archetype)) {
     pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
     return;
   }
 
   state.points[player] -= cost;
+  if (counted) state.unitCount[word] += 1;
   if (queue >= 0) {
     // Accepted at the press; the queue's next poll spawns it.
     state.unitQueue[player * UNIT_QUEUES + queue] += 1;
@@ -2500,6 +2535,7 @@ export function systemBuy(state: SimState, player: number, id: number): void {
     pushEvent(state.events, EV_PURCHASE, uid, player, archetype);
   } else {
     state.points[player] += cost; // entity cap hit: refund, nothing spawned
+    if (counted) state.unitCount[word] -= 1;
     pushEvent(state.events, EV_PURCHASE_REFUSED, id, player, archetype);
   }
 }
@@ -3736,19 +3772,27 @@ export function fireWardenMissile(
   const p = spawnStraight(state, shooter, dx, dy, target, target);
   if (p < 0) return;
   const speed = roundSpeed(SKY_MISSILE_SPEED_RAW);
+  // `cact_missile_spawn` (0x0044d103): with the catalogue's acceleration 0 it
+  // leaves at its top speed (`top << 4`); with one (Slim's and Joke's 0x7a) at
+  // `top * 2`, an eighth, and speeds up by `delta * accel / 16` a tick to it.
+  const accelRaw = state.map.skyMissileAccel;
+  const accel = accelRaw !== 0 ? acceleration(accelRaw) : 0;
+  const launch = accelRaw !== 0 ? speed / 8 : speed;
   ent.mode[p] = PROJ_ROUND;
   state.roundFrom[p] = roundSource(ent.archetype[shooter], ent.team[shooter]);
   ent.ownerId[p] = ent.ownerId[shooter];
   ent.ammoA[p] = SKY_MISSILE_DAMAGE;
   ent.aux[p] = 0;
   ent.ammoB[p] = ROUND_HOMING | ROUND_RIVAL;
-  ent.timerA[p] = Math.ceil((SKY_MISSILE_FLIGHT / speed) * TICK_HZ) + 1;
-  ent.cooldownA[p] = speed;
-  ent.velX[p] = dx * speed;
-  ent.velY[p] = dy * speed;
+  // Its 24 m at the top speed, plus the ticks it spends below it.
+  const ramp = accel > 0 ? Math.ceil((speed - launch) / (accel * TICK_DT)) : 0;
+  ent.timerA[p] = Math.ceil((SKY_MISSILE_FLIGHT / speed) * TICK_HZ) + 1 + ramp;
+  ent.cooldownA[p] = launch;
+  ent.velX[p] = dx * launch;
+  ent.velY[p] = dy * launch;
   ent.cooldownB[p] = SKY_MISSILE_FLIGHT;
   ent.aimX[p] = speed;
-  ent.aimY[p] = 0;
+  ent.aimY[p] = accel;
   pushEvent(state.events, EV_SHOT, shooter, SHOT_SLOT_LAUNCH, SKY_WEAPON_MISSILE);
 }
 
@@ -3803,6 +3847,28 @@ export function entityRefHeight(state: SimState, id: number): number {
 }
 
 /**
+ * Down at or below zero, and not a crashing aircraft: a jet, Fortress or Sky
+ * Captain tumbling to the ground is still an actor the original's searches,
+ * shooters, guided rounds and locks keep (they drop a target when its serial
+ * changes, which the death at the landing does; `cact_find_target` skips the
+ * flags the landing sets).
+ */
+export function downed(state: SimState, t: number): boolean {
+  const ent = state.ent;
+  if (ent.hp[t] > 0) return false;
+  const a = ent.archetype[t];
+  if (a === ARCHETYPE.GUARDIAN || a === ARCHETYPE.FORTRESS) return state.air.phase[t] !== AIR_CRASH;
+  if (
+    a === ARCHETYPE.WARDEN &&
+    state.wardenPlayer >= 0 &&
+    state.avatarId[state.wardenPlayer] === t
+  ) {
+    return state.captain.fly !== SKY_CRASH;
+  }
+  return true;
+}
+
+/**
  * Damage bookkeeping; deaths are collected by systemDamageDeath afterwards.
  * `byRival` says the hit is an avatar's own craft's — the Sky Captain's gun,
  * missile or bomb, or an X1-Alpha's weapons and their rounds — which a player's
@@ -3833,10 +3899,21 @@ function applyDamage(
   ent.aux[target] = attacker + 1;
   // The Sky Captain remembers its killing hit too (+0x8c, `cact_base_op9`
   // 0x0041a707), which its death reads for the X1's Walker Kills.
-  if (ent.archetype[target] === ARCHETYPE.AVATAR || ent.archetype[target] === ARCHETYPE.WARDEN) {
+  // A mech's down reads it at once; the captain's at its crash's landing,
+  // which resolves the hitter's serial then: it keeps the life (`born`) of the
+  // mech whose craft hit it, 0 for anyone else's hit.
+  if (ent.archetype[target] === ARCHETYPE.AVATAR) {
     const p = ent.ownerId[target];
     if (p >= 0 && p < MAX_PLAYERS && state.avatarId[p] === target) {
       state.rivalHit[p] = byRival ? 1 : 0;
+    }
+  } else if (ent.archetype[target] === ARCHETYPE.WARDEN) {
+    const p = ent.ownerId[target];
+    if (p >= 0 && p < MAX_PLAYERS && state.avatarId[p] === target) {
+      const mech = attacker >= 0 && attacker < MAX_PLAYERS ? state.avatarId[attacker] : -1;
+      // Only a hit that leaves it down rewrites the credit (`cact_base_op11`
+      // 0x0041a7ef; `cact_base_op9` likewise), at Metropolis' threshold of 0.
+      if (ent.hp[target] <= 0) state.rivalHit[p] = byRival && mech >= 0 ? ent.born[mech] : 0;
     }
   }
   pushEvent(state.events, EV_HIT, target, attacker, damage);
@@ -4165,7 +4242,7 @@ export function forgetTurretTarget(ent: EntityStore, id: number): void {
 /** The shooter's own keep-target test: alive, still an enemy, inside reach. */
 function shooterTargetValid(state: SimState, id: number, t: number, range: number): boolean {
   const ent = state.ent;
-  if (!ent.alive[t] || ent.hp[t] <= 0 || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
+  if (!ent.alive[t] || downed(state, t) || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
   const team = ent.team[t];
   if (team === ent.team[id] || team === TEAM_NEUTRAL) return false;
   const dx = ent.posX[t] - ent.posX[id];
@@ -4468,7 +4545,7 @@ function targetValidFrom(
   range: number,
 ): boolean {
   const ent = state.ent;
-  if (!ent.alive[t] || ent.hp[t] <= 0 || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
+  if (!ent.alive[t] || downed(state, t) || ent.archetype[t] === ARCHETYPE.PROJECTILE) return false;
   const tt = ent.team[t];
   if (tt === team || tt === TEAM_NEUTRAL) return false;
   const dx = ent.posX[t] - x;
@@ -5251,6 +5328,7 @@ function guidedTick(state: SimState, id: number): void {
       // A contact: the round's own serial is the credit, which resolves to
       // nobody (0x0041a811), so it is no rival's hit.
       applyDamage(state, t, ent.ammoA[id], ent.ownerId[id], false);
+      pushEvent(state.events, EV_TOUCH, t, 0, 0);
       notePush(state, t, ent.born[id], missilePushDir(state, id), ent.ammoA[id]);
       if (hug) {
         // The body's health as the drone reads it: before its own notice
@@ -5633,7 +5711,7 @@ function systemProjectiles(state: SimState): void {
  */
 function homingValid(state: SimState, id: number, target: number): boolean {
   const ent = state.ent;
-  if (!ent.alive[target] || ent.hp[target] <= 0) return false;
+  if (!ent.alive[target] || downed(state, target)) return false;
   if (state.buffInvis.length > 0) {
     for (let p = 0; p < MAX_PLAYERS; p++) {
       if (state.avatarId[p] !== target || state.buffInvis[p] <= 0) continue;
@@ -5722,7 +5800,11 @@ function explode(state: SimState, id: number, struck = -1): void {
     // round's own serial as the credit (`cact_base_op9` 0x0041a811), gone once
     // the round has died: it credits nobody (RE aircraft.c 0x00420e1c,
     // player.c 0x004477ab; fcop-fidelity.md V7).
-    if (struck >= 0) applyDamage(state, struck, damage, owner, false);
+    if (struck >= 0) {
+      applyDamage(state, struck, damage, owner, false);
+      // The contact is operation 0x0b: it clears the body's death mask (A19).
+      pushEvent(state.events, EV_TOUCH, struck, 0, 0);
+    }
   }
   if (pushDir !== 0) notePush(state, struck, born, pushDir, damage);
 }
@@ -5774,155 +5856,201 @@ function systemDamageDeath(state: SimState): void {
   const ent = state.ent;
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id] || ent.hp[id] > 0) continue;
-    if (ent.archetype[id] === ARCHETYPE.PROJECTILE) continue;
-    const killer = ent.aux[id] - 1; // -1 = environment/dummy
     const archetype = ent.archetype[id];
-    // A mech down with HARD's sinking marker (`player_op4` reads block +0xde
-    // first): no wreck and no death effects, and the short respawn below.
-    const owner = ent.ownerId[id];
-    const sunk =
-      archetype === ARCHETYPE.AVATAR &&
-      owner >= 0 &&
-      owner < MAX_PLAYERS &&
-      state.avatarId[owner] === id &&
-      state.avatarSinking[owner] !== 0;
-    if (sunk) pushEvent(state.events, EV_SUNK, id, owner, 0);
-    if (state.killPushDamage[id] !== 0) {
-      pushEvent(state.events, EV_KILL_PUSH, id, state.killPushDir[id], state.killPushDamage[id]);
-      state.killPushDamage[id] = 0;
-      state.killPushDir[id] = 0;
+    if (archetype === ARCHETYPE.PROJECTILE) continue;
+    // Below zero, an aircraft gets the original's operation 4 at the frame's end
+    // (`cact_tick_expired` after every actor's tick; fcop-fidelity.md A19, U3):
+    // `aircraft_op4` (0x00420296) puts the Sky Captain always, a jet or Flying
+    // Fortress 10 times in 16, into the crash, and it dies where it lands
+    // (units.ts aircraftTumble; the captain in warden.ts). A crash its decision
+    // pass broke off starts again here; the other 6 in 16 die at once.
+    if (
+      archetype === ARCHETYPE.WARDEN &&
+      state.wardenPlayer >= 0 &&
+      state.avatarId[state.wardenPlayer] === id
+    ) {
+      captainCrash(state, id);
+      continue;
     }
-    pushEvent(state.events, EV_DEATH, id, killer, archetype);
-    // Earn table (rules.md §3, fcop-fidelity.md R4-R7): a death pays the OTHER
-    // side whoever caused it, because the original pays from the dying actor's
-    // own death script, not from the kill credit. Neutral turrets (dummies,
-    // uncaptured pads) and consoles pay nothing. A player's avatar pays at its
-    // respawn (systemSpawning); the Warden, like the Sky Captain, when it falls.
-    const team = ent.team[id];
-    if (team === 0 || team === 1) {
-      const other = team ^ 1;
-      if (archetype === ARCHETYPE.WARDEN) {
-        avatarDown(state, team);
-        // The commander's death: First Death stamped once and its deaths, sky_ai
-        // +0x48 and +0x3e (aircraft.c 0x00420df9; at the crash's end there,
-        // which Metropolis does not model).
-        noteDown(state, team);
-        // ...and one more Walker Kill for the player's side when the hit that
-        // brought it down was that X1's own (its weapons, or a round or mine it
-        // fired): the remembered serial resolves to team slot 0's mech, whose
-        // block's +0x14 rises (aircraft.c 0x00420e1c..0x00420e57; slot 0 is
-        // always the human against the captain).
-        if (state.rivalHit[team] !== 0) bumpStat(state, other, STAT_WALKER_KILLS);
-      } else if (archetype === ARCHETYPE.TURRET) {
-        earn(state, other, POINTS_TURRET_DIES);
-        if (ent.mode[id] === TURRET_CAPTURABLE) {
-          // A captured neutral turret destroyed is an engine credit (turret.c),
-          // and one more "Turrets Destroyed" for the side that held it, never
-          // for the side that scores (`turret_score_death` 0x0041be31,
-          // 0x0041befa, 0x0041bf21). One a claim kills is neutral by then.
-          captainCredit(state, other);
-          bumpStat(state, team, STAT_TURRETS_DESTROYED);
-        }
-      } else if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN)
-        earn(state, other, POINTS_UNIT_DIES);
-      else if (archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS)
-        earn(state, other, POINTS_HEAVY_DIES);
-      // A unit's death: one more "Destroyed" of its class for the side that
-      // lost it, whoever killed it (`csac_on_spawned_death` 0x0044f16d).
-      const lost = unitStatKey(archetype, false);
-      if (lost >= 0) bumpStat(state, team, lost);
+    if (archetype === ARCHETYPE.GUARDIAN || archetype === ARCHETYPE.FORTRESS) {
+      const phase = state.air.phase[id];
+      if (phase === AIR_CRASH) continue;
+      if (phase !== AIR_LANDED && randInt(state, 16) < AIRCRAFT_CRASH_ROLL) {
+        state.air.phase[id] = AIR_CRASH;
+        aircraftCrash(state, id, airSpeedRaw(state, id));
+        continue;
+      }
     }
-    if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN) {
-      const player = ent.ownerId[id];
-      state.avatarId[player] = -1;
-      state.respawnTimer[player] =
-        archetype === ARCHETYPE.WARDEN
-          ? skyRespawnTicks(wardenLevel(state.wardenDifficulty))
-          : sunk
-            ? RESPAWN_SUNK_TICKS
-            : RESPAWN_TICKS;
-      // The marker is consumed by the down (`player_op4` reads and clears it,
-      // 0x0044761e).
-      state.avatarSinking[player] = 0;
-      if (archetype === ARCHETYPE.AVATAR) {
-        // The mech's down, any cause: First Death stamped once, its deaths
-        // (`player_op4` 0x00447764, 0x00447780).
-        noteDown(state, player);
-        // The credit is taken at the down, and only when the hit that put the
-        // mech down was the rival's own craft (`player_op4`
-        // 0x004477ab..0x00447821; fcop-fidelity.md U3, V7). With the Sky
-        // Captain: its tally of mechs put down and its rethink zeroed, so its
-        // next tick decides. Without one: the other slot's Walker Kills. A tank,
-        // jet or turret, a fall or the water credits nobody.
-        if (state.rivalHit[player] !== 0) {
-          if (state.wardenPlayer >= 0) {
-            captainCredit(state, state.wardenPlayer);
-            bumpStat(state, state.wardenPlayer, STAT_WALKER_KILLS);
-          } else {
-            bumpStat(state, player ^ 1, STAT_WALKER_KILLS);
-          }
+    downEntity(state, id);
+  }
+}
+
+/**
+ * An entity's death: its event, its side's points and figures, its slot's
+ * respawn, and its despawn. systemDamageDeath's for everything below zero but
+ * a crashing aircraft; the Sky Captain's when its tumble lands (warden.ts).
+ */
+export function downEntity(state: SimState, id: number): void {
+  const ent = state.ent;
+  const killer = ent.aux[id] - 1; // -1 = environment/dummy
+  const archetype = ent.archetype[id];
+  // A mech down with HARD's sinking marker (`player_op4` reads block +0xde
+  // first): no wreck and no death effects, and the short respawn below.
+  const owner = ent.ownerId[id];
+  const sunk =
+    archetype === ARCHETYPE.AVATAR &&
+    owner >= 0 &&
+    owner < MAX_PLAYERS &&
+    state.avatarId[owner] === id &&
+    state.avatarSinking[owner] !== 0;
+  if (sunk) pushEvent(state.events, EV_SUNK, id, owner, 0);
+  if (state.killPushDamage[id] !== 0) {
+    pushEvent(state.events, EV_KILL_PUSH, id, state.killPushDir[id], state.killPushDamage[id]);
+    state.killPushDamage[id] = 0;
+    state.killPushDir[id] = 0;
+  }
+  pushEvent(state.events, EV_DEATH, id, killer, archetype);
+  // Earn table (rules.md §3, fcop-fidelity.md R4-R7): a death pays the OTHER
+  // side whoever caused it, because the original pays from the dying actor's
+  // own death script, not from the kill credit. Neutral turrets (dummies,
+  // uncaptured pads) and consoles pay nothing. A player's avatar pays at its
+  // respawn (systemSpawning); the Warden, like the Sky Captain, when its crash
+  // lands (its death script, run by the landing, 0x00420e5b); a tumbling jet or
+  // Fortress where it lands (its script runs from `cact_base_op4`).
+  const team = ent.team[id];
+  if (team === 0 || team === 1) {
+    const other = team ^ 1;
+    if (archetype === ARCHETYPE.WARDEN) {
+      avatarDown(state, team);
+      // The commander's death, at the crash's end: First Death stamped once and
+      // its deaths, sky_ai +0x48 and +0x3e (aircraft.c 0x00420df9).
+      noteDown(state, team);
+      // ...and one more Walker Kill for the player's side when the last hit that
+      // left it below zero was that X1's own (its weapons, or a round or mine it
+      // fired), and that mech is still the one that fired: the serial is
+      // resolved here, at the landing, so a mech downed or respawned during the
+      // tumble no longer matches it (aircraft.c 0x00420e1c..0x00420e57; slot 0
+      // is always the human against the captain).
+      const hitter = state.avatarId[other];
+      if (
+        state.rivalHit[team] !== 0 &&
+        hitter >= 0 &&
+        ent.alive[hitter] &&
+        ent.born[hitter] === state.rivalHit[team]
+      ) {
+        bumpStat(state, other, STAT_WALKER_KILLS);
+      }
+    } else if (archetype === ARCHETYPE.TURRET) {
+      earn(state, other, POINTS_TURRET_DIES);
+      if (ent.mode[id] === TURRET_CAPTURABLE) {
+        // A captured neutral turret destroyed is an engine credit (turret.c),
+        // and one more "Turrets Destroyed" for the side that held it, never
+        // for the side that scores (`turret_score_death` 0x0041be31,
+        // 0x0041befa, 0x0041bf21). One a claim kills is neutral by then.
+        captainCredit(state, other);
+        bumpStat(state, team, STAT_TURRETS_DESTROYED);
+      }
+    } else if (archetype === ARCHETYPE.RUNNER || archetype === ARCHETYPE.GUARDIAN) {
+      earn(state, other, POINTS_UNIT_DIES);
+      // ...and its death script lowers its side's count word (27..30).
+      state.unitCount[team * 2 + (archetype === ARCHETYPE.GUARDIAN ? 1 : 0)] -= 1;
+    } else if (archetype === ARCHETYPE.JUGGERNAUT || archetype === ARCHETYPE.FORTRESS)
+      earn(state, other, POINTS_HEAVY_DIES);
+    // A unit's death: one more "Destroyed" of its class for the side that
+    // lost it, whoever killed it (`csac_on_spawned_death` 0x0044f16d).
+    const lost = unitStatKey(archetype, false);
+    if (lost >= 0) bumpStat(state, team, lost);
+  }
+  if (archetype === ARCHETYPE.AVATAR || archetype === ARCHETYPE.WARDEN) {
+    const player = ent.ownerId[id];
+    state.avatarId[player] = -1;
+    state.respawnTimer[player] =
+      archetype === ARCHETYPE.WARDEN
+        ? skyRespawnTicks(wardenLevel(state.wardenDifficulty))
+        : sunk
+          ? RESPAWN_SUNK_TICKS
+          : RESPAWN_TICKS;
+    // The marker is consumed by the down (`player_op4` reads and clears it,
+    // 0x0044761e).
+    state.avatarSinking[player] = 0;
+    if (archetype === ARCHETYPE.AVATAR) {
+      // The mech's down, any cause: First Death stamped once, its deaths
+      // (`player_op4` 0x00447764, 0x00447780).
+      noteDown(state, player);
+      // The credit is taken at the down, and only when the hit that put the
+      // mech down was the rival's own craft (`player_op4`
+      // 0x004477ab..0x00447821; fcop-fidelity.md U3, V7). With the Sky
+      // Captain: its tally of mechs put down and its rethink zeroed, so its
+      // next tick decides. Without one: the other slot's Walker Kills. A tank,
+      // jet or turret, a fall or the water credits nobody.
+      if (state.rivalHit[player] !== 0) {
+        if (state.wardenPlayer >= 0) {
+          captainCredit(state, state.wardenPlayer);
+          bumpStat(state, state.wardenPlayer, STAT_WALKER_KILLS);
+        } else {
+          bumpStat(state, player ^ 1, STAT_WALKER_KILLS);
         }
       }
-      // Power-ups are lost when the avatar goes down (`player_respawn` clears the
-      // block-B ammunition; fcop-fidelity.md P2, P8). The cloak and invulnerability
-      // timers are NOT cleared: the original keeps counting them down while the
-      // mech is down (fcop-re/player-and-weapons.md §1).
-      for (let k = 0; k < 3; k++) state.powerAmmo[player * 3 + k] = 0;
-      state.lockTarget[player] = -1; // death drops any lock
-    } else if (archetype === ARCHETYPE.TURRET) {
-      let slotted = false;
-      for (let k = 0; k < state.dummyEntity.length; k++) {
-        if (state.dummyEntity[k] === id) {
-          state.dummyEntity[k] = -1;
-          state.dummyRespawn[k] = DUMMY_RESPAWN_TICKS;
+    }
+    // Power-ups are lost when the avatar goes down (`player_respawn` clears the
+    // block-B ammunition; fcop-fidelity.md P2, P8). The cloak and invulnerability
+    // timers are NOT cleared: the original keeps counting them down while the
+    // mech is down (fcop-re/player-and-weapons.md §1).
+    for (let k = 0; k < 3; k++) state.powerAmmo[player * 3 + k] = 0;
+    state.lockTarget[player] = -1; // death drops any lock
+  } else if (archetype === ARCHETYPE.TURRET) {
+    let slotted = false;
+    for (let k = 0; k < state.dummyEntity.length; k++) {
+      if (state.dummyEntity[k] === id) {
+        state.dummyEntity[k] = -1;
+        state.dummyRespawn[k] = DUMMY_RESPAWN_TICKS;
+        slotted = true;
+        break;
+      }
+    }
+    if (!slotted) {
+      for (let k = 0; k < state.baseTurretEntity.length; k++) {
+        if (state.baseTurretEntity[k] === id) {
+          state.baseTurretEntity[k] = -1;
+          state.baseTurretRespawn[k] = ringRespawnTicks(
+            state.map,
+            baseTurretSpot(state.map, k).team,
+          );
+          // "Base turret lost" (fcop-fidelity.md R15, voice ids 0/1).
+          pushEvent(state.events, EV_TURRET_LOST, id, ent.team[id], k);
           slotted = true;
           break;
         }
       }
-      if (!slotted) {
-        for (let k = 0; k < state.baseTurretEntity.length; k++) {
-          if (state.baseTurretEntity[k] === id) {
-            state.baseTurretEntity[k] = -1;
-            state.baseTurretRespawn[k] = ringRespawnTicks(
-              state.map,
-              baseTurretSpot(state.map, k).team,
-            );
-            // "Base turret lost" (fcop-fidelity.md R15, voice ids 0/1).
-            pushEvent(state.events, EV_TURRET_LOST, id, ent.team[id], k);
-            slotted = true;
-            break;
-          }
-        }
-      }
-      if (!slotted) {
-        // An outpost plate's team turret: back for its owner in 25 s, every time.
-        for (let j = 0; j < state.plateTurretEntity.length; j++) {
-          if (state.plateTurretEntity[j] === id) {
-            state.plateTurretEntity[j] = -1;
-            state.plateTurretRespawn[j] = OUTPOST_TURRET_RESPAWN_TICKS;
-            slotted = true;
-            break;
-          }
-        }
-      }
-      if (!slotted) {
-        // Capturable turret: husk now, back as NEUTRAL in 25 s (rules.md §5)
-        // regardless of who owned it when it died — unless an outpost claim shut
-        // its spawner (-1), which keeps it gone.
-        for (let k = 0; k < state.neutralTurretEntity.length; k++) {
-          if (state.neutralTurretEntity[k] === id) {
-            state.neutralTurretEntity[k] = -1;
-            if (state.neutralTurretRespawn[k] >= 0) {
-              state.neutralTurretRespawn[k] = NEUTRAL_TURRET_RESPAWN_TICKS;
-            }
-            break;
-          }
+    }
+    if (!slotted) {
+      // An outpost plate's team turret: back for its owner in 25 s, every time.
+      for (let j = 0; j < state.plateTurretEntity.length; j++) {
+        if (state.plateTurretEntity[j] === id) {
+          state.plateTurretEntity[j] = -1;
+          state.plateTurretRespawn[j] = OUTPOST_TURRET_RESPAWN_TICKS;
+          slotted = true;
+          break;
         }
       }
     }
-    forgetTurretTarget(ent, id);
-    despawn(ent, id);
+    if (!slotted) {
+      // Capturable turret: husk now, back as NEUTRAL in 25 s (rules.md §5)
+      // regardless of who owned it when it died — unless an outpost claim shut
+      // its spawner (-1), which keeps it gone.
+      for (let k = 0; k < state.neutralTurretEntity.length; k++) {
+        if (state.neutralTurretEntity[k] === id) {
+          state.neutralTurretEntity[k] = -1;
+          if (state.neutralTurretRespawn[k] >= 0) {
+            state.neutralTurretRespawn[k] = NEUTRAL_TURRET_RESPAWN_TICKS;
+          }
+          break;
+        }
+      }
+    }
   }
+  forgetTurretTarget(ent, id);
+  despawn(ent, id);
 }
 
 /**
@@ -6672,6 +6800,9 @@ export function hash(state: SimState): number {
   // Warden match only from 75) and the results page's figures (stats.ts).
   for (let p = 0; p < MAX_PLAYERS; p++) {
     h = fnv1aU32(h, state.rivalHit[p]);
+    // Appended at SIM_VERSION 106: the count words.
+    h = fnv1aU32(h, state.unitCount[p * 2] >>> 0);
+    h = fnv1aU32(h, state.unitCount[p * 2 + 1] >>> 0);
     h = fnv1aU32(h, state.pointsScored[p]);
     h = fnv1aU32(h, state.firstDeath[p]);
     h = fnv1aU32(h, state.firstOutpost[p]);
@@ -6690,6 +6821,25 @@ export function hash(state: SimState): number {
       h = fnv1aU32(h, state.gunTarget[k]);
       h = fnv1aU32(h, state.gunSearch[k] >>> 0);
     }
+  }
+  // Appended at SIM_VERSION 106: every live aircraft's flight (units.ts AirState),
+  // the Sky Captain's too, in id order.
+  const air = state.air;
+  for (let id = 0; id < ent.high; id++) {
+    if (!ent.alive[id]) continue;
+    const a = ent.archetype[id];
+    if (a !== ARCHETYPE.GUARDIAN && a !== ARCHETYPE.FORTRESS && a !== ARCHETYPE.WARDEN) continue;
+    h = fnv1aU32(h, air.hx[id] >>> 0);
+    h = fnv1aU32(h, air.hy[id] >>> 0);
+    h = fnv1aU32(h, air.hz[id] >>> 0);
+    h = fnv1aU32(h, air.sx[id] >>> 0);
+    h = fnv1aU32(h, air.sy[id] >>> 0);
+    h = fnv1aU32(h, air.sz[id] >>> 0);
+    h = fnv1aU32(h, air.vx[id] >>> 0);
+    h = fnv1aU32(h, air.vy[id] >>> 0);
+    h = fnv1aU32(h, air.vz[id] >>> 0);
+    h = fnv1aU32(h, air.upY[id] >>> 0);
+    h = fnv1aU32(h, air.phase[id]);
   }
   // Appended at SIM_VERSION 85: the Dreadnought hull's walk, live Juggernauts on
   // a hull that walks only (bug-hunt's).
@@ -6942,7 +7092,8 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
     out[o + MATCH_SLOT_POINTS] = state.points[slot];
     out[o + MATCH_SLOT_AVATAR_ID] = a;
     const maxHp = slot === state.wardenPlayer ? captainMaxHp(state) : avatarMaxHp(state, slot);
-    out[o + MATCH_SLOT_HP_FRAC] = a >= 0 ? ent.hp[a] / maxHp : 0;
+    // A crashing captain is below zero until it lands: its gauge reads empty.
+    out[o + MATCH_SLOT_HP_FRAC] = a >= 0 && ent.hp[a] > 0 ? ent.hp[a] / maxHp : 0;
     // The magazine each slot fires from: block B while powered, else block A.
     const pk = slot * 3;
     out[o + MATCH_SLOT_AMMO_HEAVY] =
@@ -7040,7 +7191,8 @@ export function writeSnapshot(state: SimState, out: Float32Array): number {
     out[o + 5] = ent.height[id];
     out[o + 6] = ent.yaw[id];
     out[o + 7] = ent.animState[id];
-    out[o + 8] = ent.hp[id] / maxHpOf(state, id);
+    // A crashing aircraft is below zero until it lands (A19): read empty.
+    out[o + 8] = ent.hp[id] > 0 ? ent.hp[id] / maxHpOf(state, id) : 0;
     // PROJECTILE: payload kind. TURRET: DEFENSE / DUMMY / CAPTURABLE so the
     // renderer can pick Defense vs Standard meshes. Everything else: aux.
     out[o + 9] =

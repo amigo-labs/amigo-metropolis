@@ -2,7 +2,7 @@
   "mission": "Hk",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "f3d4200fde09e6c81054c052d5551fd43491e4ac",
+    "commit": "c077cb2d088fbd2a011d2738dde848d3583cd4b0",
     "tool": "tools/gfx/pa_models.py; fixtures/missions (3DBB)"
   },
   "radii": {
@@ -39,6 +39,24 @@
     ],
     "skyCaptain": [-59, -59, -59, -66, -66, -66, -227, -227, -227, -227]
   },
+  "halves": {
+    "x1": {
+      "cobj": 15,
+      "walker": 189,
+      "hover": 89
+    },
+    "tank": 135,
+    "jet": 107,
+    "fortress": 175,
+    "dreadnought": 159,
+    "baseTurret": 156,
+    "neutral": [
+      152, 152, 152, 152, 152, 152, 152, 171, 152, 152, 152, 152, 171, 152, 171, 152, 171, 171, 171,
+      171, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152, 152
+    ],
+    "skyCaptain": [191, 191, 191, 268, 268, 268, 483, 483, 483, 483]
+  },
+  "skyCaptainTemplates": [64, 64, 64, 31, 31, 31, 46, 46, 46, 66],
   "dreadnought": {
     "hull": 36,
     "hullSha": "2413db4f188f7a39",

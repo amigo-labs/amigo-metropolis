@@ -1,44 +1,109 @@
-// The original's aircraft turn (RE M3-OR; balance.ts AIRCRAFT_TURN_RATE,
-// units.ts steerHeading): a step toward the steer point, rescaled by a pure
-// shift to a 15-bit cheap magnitude and scaled by turn * delta >> 3, added to
-// the unit heading. Expected values are worked from the retail arithmetic by
-// hand, not from the function.
+// The original's aircraft flight (RE M3-OR / M3-OT; balance.ts AIRCRAFT_*,
+// units.ts flyHeading / verticalCommand / travelWu / upRowY): the heading
+// step toward the steer point, rescaled by a pure shift to a 15-bit cheap
+// magnitude and scaled by turn * delta >> 3, its Y the altitude controller's
+// command; the 7/8 decay and the pitch clamp; the bank's speed penalty.
+// Expected values are worked from the retail arithmetic by hand
+// (aircraft.c 0x00420a0f..0x00420bcc), not from the functions.
 
 import { describe, expect, it } from "bun:test";
 import {
   AIRCRAFT_TURN_RATE,
+  ORIGINAL_JET_FLIGHT,
   SKY_TURN_BOOST_RADIUS,
   SKY_TURN_RATE,
-  WU_PER_METRE,
 } from "../src/balance";
 import { createTickInputs } from "../src/inputs";
 import { getMapById, LA_CANTINA_ID } from "../src/map";
 import { createSim, step } from "../src/sim";
-import { headingScratch, steerHeading } from "../src/units";
+import { flyHeading, flyScratch, travelWu, upRowY, verticalCommand } from "../src/units";
 
-describe("steerHeading", () => {
+function level(hx: number, hy: number, hz: number): void {
+  flyScratch.hx = hx;
+  flyScratch.hy = hy;
+  flyScratch.hz = hz;
+  flyScratch.sx = 0;
+  flyScratch.sy = 0;
+  flyScratch.sz = 0;
+}
+
+describe("flyHeading", () => {
   it("adds the shifted, scaled step to the unit heading", () => {
-    // Heading +x, steer point 3 m along +y: 24576 wu, floor(log2) 14, so the
+    // Heading +x, steer point 3 m along +z: 24576 wu, floor(log2) 14, so the
     // shift is left 1 -> 49152; times 5120 * 10 >> 3 = 6400 is 4800 (16.16).
-    steerHeading(1, 0, 0, 3, AIRCRAFT_TURN_RATE);
-    const l = Math.hypot(65536, 4800);
-    expect(headingScratch.x).toBeCloseTo(65536 / l, 12);
-    expect(headingScratch.y).toBeCloseTo(4800 / l, 12);
+    // The heading (65536, 0, 4800) rescales right 1 and normalises.
+    level(65536, 0, 0);
+    flyHeading(0, 24576, 0, AIRCRAFT_TURN_RATE);
+    expect(flyScratch.hz / flyScratch.hx).toBeCloseTo(4800 / 65536, 4);
+    expect(flyScratch.hy).toBe(0);
+    // The steer low-passes the step: (3 * 0 + 4800) >> 2.
+    expect(flyScratch.sz).toBe(1200);
   });
 
   it("depends on the distance's bit pattern, not its length", () => {
     // 2 m = 16384 wu is exactly 2^14: shifted to 2^15 = 32768, step 3200. Just
     // under 2 m (16383 wu) is floor(log2) 13: shifted to 65532, step 6399.
-    steerHeading(1, 0, 0, 2, AIRCRAFT_TURN_RATE);
-    expect(headingScratch.y / headingScratch.x).toBeCloseTo(3200 / 65536, 12);
-    steerHeading(1, 0, 0, 16383 / WU_PER_METRE, AIRCRAFT_TURN_RATE);
-    expect(headingScratch.y / headingScratch.x).toBeCloseTo(6399 / 65536, 12);
+    level(65536, 0, 0);
+    flyHeading(0, 16384, 0, AIRCRAFT_TURN_RATE);
+    expect(flyScratch.hz / flyScratch.hx).toBeCloseTo(3200 / 65536, 4);
+    level(65536, 0, 0);
+    flyHeading(0, 16383, 0, AIRCRAFT_TURN_RATE);
+    expect(flyScratch.hz / flyScratch.hx).toBeCloseTo(6399 / 65536, 4);
   });
 
   it("does not turn from a point dead behind", () => {
-    steerHeading(1, 0, -5, 0, SKY_TURN_RATE);
-    expect(headingScratch.x).toBe(1);
-    expect(headingScratch.y).toBe(0);
+    level(65536, 0, 0);
+    flyHeading(-5 * 8192, 0, 0, SKY_TURN_RATE);
+    expect(flyScratch.hx).toBe(65536);
+    expect(flyScratch.hz).toBe(0);
+  });
+
+  it("takes the vertical command into the heading's Y, less an eighth", () => {
+    // 0x1800 - 0x1800 / 8 = 5376 against 65536; the rescale halves both. The
+    // steer's Y: (0 + 6144) >> 2 = 1536, less a quarter = 1152.
+    level(65536, 0, 0);
+    flyHeading(0, 0, 0x1800, AIRCRAFT_TURN_RATE);
+    expect(flyScratch.hy / flyScratch.hx).toBeCloseTo(2688 / 32768, 4);
+    expect(flyScratch.sy).toBe(1152);
+  });
+
+  it("clamps the pitch to 0x8000 of the 15-bit rescale", () => {
+    // Straight up plus 0x1800: 71680 - 8960 = 62720, with 4800 along z; the
+    // cheap magnitude 62720 + 1200 is 15 bits, no shift; Y clamps to 32768.
+    level(0, 65536, 0);
+    flyHeading(0, 24576, 0x1800, AIRCRAFT_TURN_RATE);
+    expect(flyScratch.hy / flyScratch.hz).toBeCloseTo(32768 / 4800, 3);
+  });
+});
+
+describe("the altitude controller (0x00420a60..0x00420af2)", () => {
+  const f = ORIGINAL_JET_FLIGHT; // 819 / 921 / 1024
+  it("saturates at the band's edges and rests in its deadband", () => {
+    expect(verticalCommand((819 << 4) - 1, 0, f)).toBe(0x1800);
+    expect(verticalCommand(819 << 4, 0, f)).toBe(0x1800);
+    expect(verticalCommand(1024 << 4, 0, f)).toBe(-0x1800);
+    expect(verticalCommand(921 << 4, 0, f)).toBe(0);
+  });
+
+  it("commands the error times the half band's reciprocal, times 3/32", () => {
+    // 736 wu under 14736: 0x80000000 / 816 = 2631720; 736 * that >> 16 = 29556;
+    // * 3 >> 5 = 2770.
+    expect(verticalCommand(14000, 0, f)).toBe(2770);
+  });
+});
+
+describe("the bank's speed penalty (0x00420b84)", () => {
+  it("moves a level aircraft speed * delta >> 8 and a banked one less", () => {
+    // The jet's word 27962: 1092 wu a tick level. |m(1,1)| 52429: tilt
+    // 26214 - 1638 = 24576, >> 8 = 96, so (416 * 1092) >> 9 = 887.
+    expect(travelWu(27962, 0x10000)).toBe(1092);
+    expect(travelWu(27962, 52429)).toBe(887);
+  });
+
+  it("reads the bank from the up vector the steer leans", () => {
+    // Forward +z, steer 0x2000 along x: up (8192, 8192, 0), 45 degrees.
+    expect(upRowY(0, 0, 65536, 0, 0, 0)).toBe(65536);
+    expect(upRowY(0, 0, 65536, 8192, 0, 0)).toBe(46340);
   });
 });
 

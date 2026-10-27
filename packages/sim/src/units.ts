@@ -26,36 +26,45 @@
 
 import { ARCHETYPE, TEAM_NEUTRAL } from "./archetypes";
 import {
-  AIR_ALTITUDE,
   AIRCRAFT_CRUISE_DWELL_MIN,
   AIRCRAFT_CRUISE_JITTER,
   AIRCRAFT_DELTA_UNITS,
   AIRCRAFT_DWELL_JITTER,
   AIRCRAFT_HEADING_ONE,
+  AIRCRAFT_PITCH_LIMIT,
   AIRCRAFT_REVERSE_JITTER,
   AIRCRAFT_REVERSE_UNITS,
   AIRCRAFT_SEARCH_JITTER,
   AIRCRAFT_SEARCH_UNITS,
+  AIRCRAFT_SPAWN_CLIMB,
+  AIRCRAFT_SPAWN_HIGH,
+  AIRCRAFT_SPAWN_HIGH_RISE,
   AIRCRAFT_STANDOFF,
   AIRCRAFT_STEP_BITS,
+  AIRCRAFT_TUMBLE_SPAN,
   AIRCRAFT_TURN_RATE,
+  AIRCRAFT_UP_BIAS,
+  AIRCRAFT_VERT_DEADBAND,
+  AIRCRAFT_VERT_MAX,
+  type AircraftFlight,
   AVATAR_HOVER_MAX_SLOPE,
   AVATAR_HOVER_SPEED,
   AVATAR_WALKER_MAX_SLOPE,
-  FORTRESS_AIRCRAFT_SPEED,
+  FORTRESS_AIRCRAFT_SPEED_RAW,
   FORTRESS_DETECT_RANGE,
   FORTRESS_DWELL_CRUISE,
   FORTRESS_DWELL_ENGAGE,
   FORTRESS_LEASH_X,
   FORTRESS_LEASH_Y,
   FRAME_CLOCK_PER_TICK,
-  GUARDIAN_AIRCRAFT_SPEED,
+  GUARDIAN_AIRCRAFT_SPEED_RAW,
   GUARDIAN_DETECT_RANGE,
   GUARDIAN_DWELL_CRUISE,
   GUARDIAN_DWELL_ENGAGE,
   GUARDIAN_LEASH_X,
   GUARDIAN_LEASH_Y,
   HOVER_CUSHION_SPAN,
+  MAX_ENTITIES,
   ROUTE_CONE_COS,
   ROUTE_HOLD_TICKS,
   ROUTE_NEAR_BLOCK,
@@ -74,15 +83,24 @@ import {
   TARGET_PRIORITY_JUGGERNAUT,
   TARGET_PRIORITY_RUNNER,
   TICK_DT,
+  TICK_HZ,
   UNIT_SEPARATION_PUSH,
   UNIT_SEPARATION_RADIUS,
   WAYPOINT_RADIUS,
   WU_PER_METRE,
+  wardenLevel,
 } from "./balance";
 import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
-import { type MapData, resolveHeight, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
+import {
+  coarseHeightAt,
+  type MapData,
+  resolveHeight,
+  sampleHeight,
+  sampleLayerHeight,
+  worldExtent,
+} from "./map";
 import { ANIM_MOVING, entityRadius, rideHeight, type SimState, STEP_SNAP } from "./sim";
-import { atan2Poly, cosLUT, rand01, randInt, sinLUT } from "./simMath";
+import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
 import { animStep, T_MODE } from "./walker";
 
 /**
@@ -308,7 +326,9 @@ function insideLeash(state: SimState, id: number): boolean {
  * after the state switch).
  */
 export function aircraftEngaged(state: SimState, id: number): boolean {
-  return (state.ent.mode[id] & AIR_CRUISE) === 0;
+  // Not in the climb or the crash: the steering block, which steps the gun, is
+  // entered from ENGAGE and CRUISE only (0x00420867).
+  return (state.ent.mode[id] & AIR_CRUISE) === 0 && state.air.phase[id] === AIR_FLY;
 }
 
 /** The halfword the original keeps a state timer in (`mov word ptr [esi + 0x100]`). */
@@ -328,6 +348,9 @@ function dwellReload(state: SimState, dwell: number): number {
 
 /** A new patrol destination inside half the leash (`aircraft_pick_destination`). */
 function pickDestination(state: SimState, id: number): void {
+  // Nothing in the crash (0x00420680's first refusal).
+  const phase = state.air.phase[id];
+  if (phase === AIR_CRASH || phase === AIR_LANDED) return;
   const ent = state.ent;
   const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
   const lx = (fortress ? FORTRESS_LEASH_X : GUARDIAN_LEASH_X) * 0.5;
@@ -382,7 +405,7 @@ function aircraftSearch(state: SimState, id: number): number {
  * units:
  * - every 0x384 + rand 0..0x1ff units (3.0-4.7 s) it searches (aircraftSearch)
  *   and takes what it finds, or nothing; a target that dies is dropped and a
- *   new destination drawn;
+ *   new destination drawn — in every state, the climb and the crash included;
  * - ENGAGE and CRUISE each last their dwell (balance.ts GUARDIAN_/FORTRESS_
  *   DWELL_*: the jet 20 s / 5 s), an ENGAGE that runs out drawing a destination;
  * - in ENGAGE, out of its box — ±20 x ±24 m about its anchor for a jet, ±28 x
@@ -392,18 +415,23 @@ function aircraftSearch(state: SimState, id: number): number {
  *   fires only in ENGAGE;
  * - inside the 1 m standoff (by the octagonal estimate, 0x00458000) it
  *   reverses, and keeps reversing for 0.5-0.9 s;
- * - it turns as the original does (steerHeading, the record's turn 5120): it
- *   flies its heading and bends it toward the point, so it loops about what it
- *   attacks and circles its destination. It never halts.
+ * - it flies as the original does (aircraftFly): the heading turned toward the
+ *   point, its Y the altitude controller's, the bank's speed penalty;
+ * - a launch climb (spawn flag 4) rises straight up into ENGAGE (aircraftClimb);
+ *   shot down, 10 in 16 tumble to the ground first (aircraftCrash, sim.ts
+ *   systemDamageDeath) and die where they land.
  * Field reuse: timerA/timerB the destination, timerC the state timer (engine
  * units), cooldownB the search timer (engine units), ammoB the target + 1, aimX
  * the reverse timer (engine units), mode the anchor and AIR_CRUISE, velX/velY
- * the heading times the speed.
- * Not modelled: the altitude controller (AIR_ALTITUDE), the launch climb.
+ * the horizontal velocity; the heading, steer, tumble and phase are
+ * SimState.air's.
  */
 function moveAircraft(state: SimState, id: number): void {
   const ent = state.ent;
+  const air = state.air;
   const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
+  const phase = air.phase[id];
+  if (phase === AIR_LANDED) return; // down: systemDamageDeath takes it this tick
   // 0x00420752: the search, which replaces the target with what it finds.
   ent.cooldownB[id] -= AIRCRAFT_DELTA_UNITS;
   if (ent.cooldownB[id] < 0) {
@@ -420,6 +448,18 @@ function moveAircraft(state: SimState, id: number): void {
       pickDestination(state, id);
     }
   }
+  // 0x00420867: the climb and the crash leave the dwell and the steering alone.
+  if (phase === AIR_CLIMB) {
+    if (aircraftClimb(state, id, airSpeedRaw(state, id), aircraftFlight(state, id))) {
+      air.phase[id] = AIR_FLY;
+      ent.mode[id] &= AIR_ANCHOR_MASK; // out into ENGAGE
+    }
+    return;
+  }
+  if (phase === AIR_CRASH) {
+    if (aircraftTumble(state, id)) air.phase[id] = AIR_LANDED;
+    return;
+  }
   // 0x004207eb: the dwell.
   ent.timerC[id] -= AIRCRAFT_DELTA_UNITS;
   if (ent.timerC[id] < 0) {
@@ -432,7 +472,7 @@ function moveAircraft(state: SimState, id: number): void {
       ent.timerC[id] = dwellReload(state, fortress ? FORTRESS_DWELL_ENGAGE : GUARDIAN_DWELL_ENGAGE);
     }
   }
-  // 0x00420867: the state switch.
+  // The state switch.
   let tx = ent.timerA[id];
   let ty = ent.timerB[id];
   if ((ent.mode[id] & AIR_CRUISE) === 0) {
@@ -455,99 +495,480 @@ function moveAircraft(state: SimState, id: number): void {
   const dx = tx - ent.posX[id];
   const dy = ty - ent.posY[id];
   if (ent.aimX[id] > 0) ent.aimX[id] -= AIRCRAFT_DELTA_UNITS;
-  const ax = dx < 0 ? -dx : dx;
-  const ay = dy < 0 ? -dy : dy;
-  const octagonal = ax > ay ? ax + ay / 2 : ay + ax / 2;
   let reverse = false;
-  if (octagonal < AIRCRAFT_STANDOFF || ent.aimX[id] > 0) {
+  if (octagonal(dx, dy) < AIRCRAFT_STANDOFF || ent.aimX[id] > 0) {
     reverse = true;
     if (ent.aimX[id] <= 0) {
       ent.aimX[id] = AIRCRAFT_REVERSE_UNITS + randInt(state, AIRCRAFT_REVERSE_JITTER);
     }
   }
-  const speed = airSpeed(state, id);
-  // The original's turn (steerHeading) toward the steer point, reversed inside
-  // the standoff: it flies its heading, not straight at the point.
-  aircraftHeading(state, id);
-  steerHeading(
-    headingScratch.x,
-    headingScratch.y,
-    reverse ? -dx : dx,
-    reverse ? -dy : dy,
+  aircraftFly(
+    state,
+    id,
+    dx,
+    dy,
+    reverse,
     AIRCRAFT_TURN_RATE,
+    airSpeedRaw(state, id),
+    aircraftFlight(state, id),
   );
-  ent.velX[id] = headingScratch.x * speed;
-  ent.velY[id] = headingScratch.y * speed;
-  ent.yaw[id] = atan2Poly(headingScratch.y, headingScratch.x);
-  stepAndSnap(state, id, true);
 }
 
-/** Scratch for aircraftHeading / steerHeading (module scope, no allocation per tick). */
-export const headingScratch = { x: 0, y: 0 };
+/** The octagonal estimate `vec_distance_xz` (0x00458000) on the ground plane, metres. */
+export function octagonal(dx: number, dy: number): number {
+  const ax = dx < 0 ? -dx : dx;
+  const ay = dy < 0 ? -dy : dy;
+  return ax > ay ? ax + ay / 2 : ay + ax / 2;
+}
+
+// --- The flight (`aircraft_fly`, 0x00420977..0x00420c81) --------------------
+
+/** An aircraft's phase (SimState.air.phase): the original's states 4, 3 and 5 beside flight. */
+export const AIR_FLY = 0;
+export const AIR_CLIMB = 1;
+export const AIR_CRASH = 2;
+/** The tumble reached the ground this tick: the death is taken (state 5, then op 4). */
+export const AIR_LANDED = 3;
 
 /**
- * An aircraft's unit heading into headingScratch: the direction it flies (its
- * velocity), or its facing before it has flown.
+ * Every aircraft's flight state, by entity id, in the original's integers: the
+ * heading (+0x78/+0x7c/+0x80, 16.16 unit; x and z the sim's posX / posY, y up),
+ * the low-passed steering command (+0xe8), the crash velocity (`destination`,
+ * which operation 4 reuses), the up row's |Y| the last rotation left (the bank
+ * penalty's `m(1,1)`), and the phase. Jets, Fortresses and the Sky Captain.
+ * Hashed for every live one (sim.ts hash).
  */
-export function aircraftHeading(state: SimState, id: number): void {
+export interface AirState {
+  readonly hx: Int32Array;
+  readonly hy: Int32Array;
+  readonly hz: Int32Array;
+  readonly sx: Int32Array;
+  readonly sy: Int32Array;
+  readonly sz: Int32Array;
+  readonly vx: Int32Array;
+  readonly vy: Int32Array;
+  readonly vz: Int32Array;
+  readonly upY: Int32Array;
+  readonly phase: Uint8Array;
+}
+
+export function createAirState(cap: number = MAX_ENTITIES): AirState {
+  return {
+    hx: new Int32Array(cap),
+    hy: new Int32Array(cap),
+    hz: new Int32Array(cap),
+    sx: new Int32Array(cap),
+    sy: new Int32Array(cap),
+    sz: new Int32Array(cap),
+    vx: new Int32Array(cap),
+    vy: new Int32Array(cap),
+    vz: new Int32Array(cap),
+    upY: new Int32Array(cap),
+    phase: new Uint8Array(cap),
+  };
+}
+
+/** `math_fixed_mul`: the 16.16 product, floored (64-bit in the original, exact here). */
+function fixedMul(a: number, b: number): number {
+  return Math.floor((a * b) / 0x10000);
+}
+
+/** The aircraft's record flight block: its spawner's, or the captain's level's. */
+export function aircraftFlight(state: SimState, id: number): AircraftFlight {
   const ent = state.ent;
-  const vx = ent.velX[id];
-  const vy = ent.velY[id];
-  const l = Math.sqrt(vx * vx + vy * vy);
-  if (l > 1e-9) {
-    headingScratch.x = vx / l;
-    headingScratch.y = vy / l;
-  } else {
-    headingScratch.x = cosLUT(ent.yaw[id]);
-    headingScratch.y = sinLUT(ent.yaw[id]);
+  const team = ent.team[id];
+  const map = state.map;
+  if (ent.archetype[id] === ARCHETYPE.WARDEN) {
+    return map.skyFlight[wardenLevel(state.wardenDifficulty)];
   }
+  const base = map.bases[team === 1 ? 1 : 0];
+  if (ent.archetype[id] === ARCHETYPE.FORTRESS) return base.fortressFlight;
+  const m = ent.mode[id] & AIR_ANCHOR_MASK;
+  if (m >= UNIT_MODE_OUTPOST && m - UNIT_MODE_OUTPOST < map.outposts.length) {
+    return map.outposts[m - UNIT_MODE_OUTPOST].jetFlight[team === 1 ? 1 : 0];
+  }
+  return base.jetFlight;
 }
 
 /**
- * One frame of the original's aircraft turn (`aircraft_fly`, retail
- * 0x00420a0f..0x00420b84; balance.ts AIRCRAFT_TURN_RATE): the horizontal vector
- * (dx, dy) to the steer point, in world units, is shifted until its cheap
- * magnitude (`max + min / 4`, 0x00457b10) has AIRCRAFT_STEP_BITS bits
- * (`vec_rescale_15`, 0x00457f60) — a pure shift, so the step keeps the
- * direction and not the length — scaled 16.16 by `turn * delta >> 3`
- * (0x004584a0) and added to the unit heading (hx, hy) x 0x10000, which is then
- * normalised. Writes the new unit heading to headingScratch.
+ * The ground under (x, y) in world units as the flight reads it: the coarse
+ * maximum-height envelope (`cact_coarse_height_at` 0x00456180, its 0x8000
+ * off the field unchecked) where the arena imports it; Metropolis' own maps
+ * carry none, and read their heightfield or water, whichever is higher.
  */
-export function steerHeading(hx: number, hy: number, dx: number, dy: number, turn: number): void {
-  let ix = Math.floor(dx * WU_PER_METRE);
-  let iy = Math.floor(dy * WU_PER_METRE);
-  const ax = ix < 0 ? -ix : ix;
-  const ay = iy < 0 ? -iy : iy;
-  const mag = ax > ay ? ax + (ay >> 2) : ay + (ax >> 2);
-  const bits = topBit(mag);
+function envelopeWu(state: SimState, x: number, y: number): number {
+  const map = state.map;
+  if (map.coarse) return Math.floor(coarseHeightAt(map.coarse, x, y) * WU_PER_METRE);
+  const g = sampleHeight(map, x, y);
+  return Math.floor((g < map.waterLevel ? map.waterLevel : g) * WU_PER_METRE);
+}
+
+/** The floor the flight is clamped up to: the envelope plus the model's half height (0x00420a31). */
+function floorWu(state: SimState, x: number, y: number, f: AircraftFlight): number {
+  return envelopeWu(state, x, y) + (f.halfY << 4);
+}
+
+/** `math_reciprocal_span` of a band `<< 4` (0x0042060d): `0x80000000 / (band << 4 >> 1)`. */
+function gain(band: number): number {
+  const half = (band << 4) >> 1;
+  return half > 0 ? Math.floor(0x80000000 / half) : 0;
+}
+
+/**
+ * The vertical command for an altitude `y` over `floor`, wu (0x00420a60..
+ * 0x00420af2): ±0x1800 at and beyond the band's edges, between them the error
+ * to the cruise altitude times the half band's reciprocal, times 3/32, and 0
+ * within the 0x200 deadband.
+ */
+export function verticalCommand(y: number, floor: number, f: AircraftFlight): number {
+  const target = floor + (f.altCruise << 4);
+  let cmd: number;
+  if (y < target) {
+    if (y <= floor + (f.altMin << 4)) cmd = AIRCRAFT_VERT_MAX;
+    else cmd = Math.floor((fixedMul(target - y, gain(f.altCruise - f.altMin)) * 3) / 32);
+  } else if (y >= floor + (f.altMax << 4)) {
+    cmd = -AIRCRAFT_VERT_MAX;
+  } else {
+    cmd = Math.floor((fixedMul(target - y, gain(f.altMax - f.altCruise)) * 3) / 32);
+  }
+  return (cmd < 0 ? -cmd : cmd) <= AIRCRAFT_VERT_DEADBAND ? 0 : cmd;
+}
+
+/**
+ * The heading step's scratch (`flyHeading`), module scope: in, the heading and
+ * steer; out, the same updated.
+ */
+export const flyScratch = { hx: 0, hy: 0, hz: 0, sx: 0, sy: 0, sz: 0 };
+
+/** `vec_rescale_15` (0x00457f60) of the scratch vector: a pure shift to a 15-bit cheap magnitude. */
+function rescale15(v: { x: number; y: number; z: number }): void {
+  const ax = v.x < 0 ? -v.x : v.x;
+  const ay = v.y < 0 ? -v.y : v.y;
+  const az = v.z < 0 ? -v.z : v.z;
+  // `vec_magnitude` (0x00457b10): the largest plus a quarter of the other two.
+  let a = ax;
+  let b = ay;
+  let c = az;
+  if (a < b) {
+    const t = a;
+    a = b;
+    b = t;
+  }
+  if (a < c) {
+    const t = a;
+    a = c;
+    c = t;
+  }
+  const bits = topBit(a + ((b + c) >> 2));
   if (bits > AIRCRAFT_STEP_BITS) {
-    ix >>= bits - AIRCRAFT_STEP_BITS;
-    iy >>= bits - AIRCRAFT_STEP_BITS;
+    const s = bits - AIRCRAFT_STEP_BITS;
+    v.x >>= s;
+    v.y >>= s;
+    v.z >>= s;
   } else {
-    ix <<= AIRCRAFT_STEP_BITS - bits;
-    iy <<= AIRCRAFT_STEP_BITS - bits;
+    const s = AIRCRAFT_STEP_BITS - bits;
+    v.x <<= s;
+    v.y <<= s;
+    v.z <<= s;
   }
+}
+
+const vecScratch = { x: 0, y: 0, z: 0 };
+
+/**
+ * One tick of the original's heading (`aircraft_fly` 0x00420a0f..0x00420b84) on
+ * flyScratch: the horizontal vector (dx, dz) to the steer point, wu, rescaled
+ * to 15 bits, times `turn * delta >> 3` (16.16, 0x004584a0) is the step, whose Y
+ * is the vertical command `vcmd`; the steer low-passes the step (`acc = (3 acc
+ * + in) >> 2`, 0x00457fc0) and loses a quarter of its Y; the heading takes the
+ * step, loses an eighth of its Y (both rounded toward zero), is rescaled to 15
+ * bits, its Y clamped to ±0x8000, and normalised to 16.16 — here by Math.sqrt
+ * in place of the original's inverse-square-root table (DAT_004a2b58).
+ */
+export function flyHeading(dx: number, dz: number, vcmd: number, turn: number): void {
+  const s = flyScratch;
+  const v = vecScratch;
+  v.x = dx;
+  v.y = 0;
+  v.z = dz;
+  rescale15(v);
   const scale = (turn * AIRCRAFT_DELTA_UNITS) >> 3;
-  const nx = hx * AIRCRAFT_HEADING_ONE + ((ix * scale) >> 16);
-  const ny = hy * AIRCRAFT_HEADING_ONE + ((iy * scale) >> 16);
-  const l = Math.sqrt(nx * nx + ny * ny);
-  if (l > 1e-9) {
-    headingScratch.x = nx / l;
-    headingScratch.y = ny / l;
-  } else {
-    headingScratch.x = hx;
-    headingScratch.y = hy;
+  const px = fixedMul(v.x, scale);
+  const pz = fixedMul(v.z, scale);
+  const py = vcmd;
+  s.sx = (3 * s.sx + px) >> 2;
+  s.sy = (3 * s.sy + py) >> 2;
+  s.sz = (3 * s.sz + pz) >> 2;
+  s.sy -= (s.sy + ((s.sy >> 31) & 3)) >> 2;
+  let hy = s.hy + py;
+  hy -= (hy + ((hy >> 31) & 7)) >> 3;
+  v.x = s.hx + px;
+  v.y = hy;
+  v.z = s.hz + pz;
+  rescale15(v);
+  if (v.y < -AIRCRAFT_PITCH_LIMIT) v.y = -AIRCRAFT_PITCH_LIMIT;
+  else if (v.y > AIRCRAFT_PITCH_LIMIT) v.y = AIRCRAFT_PITCH_LIMIT;
+  const l = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  if (l > 0) {
+    s.hx = Math.floor((v.x * AIRCRAFT_HEADING_ONE) / l);
+    s.hy = Math.floor((v.y * AIRCRAFT_HEADING_ONE) / l);
+    s.hz = Math.floor((v.z * AIRCRAFT_HEADING_ONE) / l);
   }
 }
 
 /**
- * Starts a PA aircraft as the construct does (0x00420380): in CRUISE (the
- * records' state byte 1) on its cruise dwell, to a destination drawn inside its
- * box (0x00420607), searching on its first tick (the timer starts at -1).
+ * The up row's |Y| of the rotation `math_matrix_from_forward_up` (0x0043fbc0)
+ * builds from the heading and the up vector `steer + (0, 0x2000, 0)`
+ * (0x00420c61): the up vector's part across the heading, normalised — so the
+ * bank of a turn and the pitch together. 16.16; 1.0 for a degenerate up.
  */
-export function startAircraft(state: SimState, id: number): void {
+export function upRowY(
+  hx: number,
+  hy: number,
+  hz: number,
+  sx: number,
+  sy: number,
+  sz: number,
+): number {
+  const ux = sx;
+  const uy = sy + AIRCRAFT_UP_BIAS;
+  const uz = sz;
+  const fx = hx / AIRCRAFT_HEADING_ONE;
+  const fy = hy / AIRCRAFT_HEADING_ONE;
+  const fz = hz / AIRCRAFT_HEADING_ONE;
+  const d = ux * fx + uy * fy + uz * fz;
+  const px = ux - fx * d;
+  const py = uy - fy * d;
+  const pz = uz - fz * d;
+  const l = Math.sqrt(px * px + py * py + pz * pz);
+  if (!(l > 0)) return AIRCRAFT_HEADING_ONE;
+  const y = Math.floor((py * AIRCRAFT_HEADING_ONE) / l);
+  return y < 0 ? -y : y;
+}
+
+/**
+ * How far a tick carries an aircraft, wu (0x00420b84): `speed * delta >> 8`
+ * scaled by `0x200 - ((0x10000 - |m(1,1)|) * 2 * 15/16 >> 8)` over 0x200 — the
+ * bank's (and pitch's) speed penalty, `(0x200 - tilt) >> 9`.
+ */
+export function travelWu(speedRaw: number, upY: number): number {
+  let tilt = (AIRCRAFT_HEADING_ONE - upY) * 2;
+  tilt -= (tilt + ((tilt >> 31) & 0xf)) >> 4;
+  const factor = 0x200 - (tilt >> 8);
+  return (factor * ((speedRaw * AIRCRAFT_DELTA_UNITS) >> 8)) >> 9;
+}
+
+/**
+ * One tick of `aircraft_fly` for aircraft `id`, toward the point (dx, dy)
+ * metres away (reversed inside the standoff): the heading step (flyHeading)
+ * with the altitude controller's command (verticalCommand, the coarse floor
+ * sampled once, 0x00420a31), the travel with its bank penalty (travelWu) along
+ * the 3D heading, the clamp up to the floor (0x00420c25), and the rotation's up
+ * row for the next tick's penalty. Positions move in whole world units.
+ */
+export function aircraftFly(
+  state: SimState,
+  id: number,
+  dx: number,
+  dy: number,
+  reverse: boolean,
+  turn: number,
+  speedRaw: number,
+  f: AircraftFlight,
+): void {
+  const ent = state.ent;
+  const air = state.air;
+  let ix = Math.floor(dx * WU_PER_METRE);
+  let iz = Math.floor(dy * WU_PER_METRE);
+  if (reverse) {
+    ix = -ix;
+    iz = -iz;
+  }
+  const xw = Math.floor(ent.posX[id] * WU_PER_METRE);
+  const zw = Math.floor(ent.posY[id] * WU_PER_METRE);
+  const yw = Math.floor(ent.height[id] * WU_PER_METRE);
+  const floor = floorWu(state, ent.posX[id], ent.posY[id], f);
+  const s = flyScratch;
+  s.hx = air.hx[id];
+  s.hy = air.hy[id];
+  s.hz = air.hz[id];
+  s.sx = air.sx[id];
+  s.sy = air.sy[id];
+  s.sz = air.sz[id];
+  flyHeading(ix, iz, verticalCommand(yw, floor, f), turn);
+  const travel = travelWu(speedRaw, air.upY[id]);
+  const mx = fixedMul(travel, s.hx);
+  const mz = fixedMul(travel, s.hz);
+  let ny = yw + fixedMul(travel, s.hy);
+  if (ny < floor) ny = floor;
+  const extent = worldExtent(state.map) * WU_PER_METRE;
+  let nx = xw + mx;
+  let nz = zw + mz;
+  nx = nx < 0 ? 0 : nx > extent ? Math.floor(extent) : nx;
+  nz = nz < 0 ? 0 : nz > extent ? Math.floor(extent) : nz;
+  ent.posX[id] = nx / WU_PER_METRE;
+  ent.posY[id] = nz / WU_PER_METRE;
+  ent.height[id] = ny / WU_PER_METRE;
+  ent.velX[id] = ((nx - xw) * TICK_HZ) / WU_PER_METRE;
+  ent.velY[id] = ((nz - zw) * TICK_HZ) / WU_PER_METRE;
+  if (s.hx !== 0 || s.hz !== 0) ent.yaw[id] = atan2Poly(s.hz, s.hx);
+  ent.animState[id] = ANIM_MOVING;
+  air.hx[id] = s.hx;
+  air.hy[id] = s.hy;
+  air.hz[id] = s.hz;
+  air.sx[id] = s.sx;
+  air.sy[id] = s.sy;
+  air.sz[id] = s.sz;
+  air.upY[id] = upRowY(s.hx, s.hy, s.hz, s.sx, s.sy, s.sz);
+}
+
+/**
+ * The launch climb (state 4, 0x0042087f): straight up by `speed * delta >> 9`
+ * wu a tick, nothing horizontal, world up; true once the clearance over the
+ * envelope less the half height passes the cruise altitude (into ENGAGE).
+ */
+export function aircraftClimb(
+  state: SimState,
+  id: number,
+  speedRaw: number,
+  f: AircraftFlight,
+): boolean {
+  const ent = state.ent;
+  const yw = Math.floor(ent.height[id] * WU_PER_METRE) + ((speedRaw * AIRCRAFT_DELTA_UNITS) >> 9);
+  ent.height[id] = yw / WU_PER_METRE;
+  ent.velX[id] = 0;
+  ent.velY[id] = 0;
+  state.air.upY[id] = AIRCRAFT_HEADING_ONE;
+  ent.animState[id] = ANIM_MOVING;
+  return yw - (f.halfY << 4) - envelopeWu(state, ent.posX[id], ent.posY[id]) > f.altCruise << 4;
+}
+
+/**
+ * Operation 4's crash (`aircraft_op4` 0x00420296..0x00420345): the heading
+ * times the speed frozen as the velocity (`vec3_scale`), three `(rand & 0xfff)
+ * - 0x800` as the tumble. The roll that spares 6 in 16 jets is the caller's.
+ */
+export function aircraftCrash(state: SimState, id: number, speedRaw: number): void {
+  const air = state.air;
+  air.vx[id] = fixedMul(air.hx[id], speedRaw);
+  air.vy[id] = fixedMul(air.hy[id], speedRaw);
+  air.vz[id] = fixedMul(air.hz[id], speedRaw);
+  air.sx[id] = randInt(state, AIRCRAFT_TUMBLE_SPAN) - (AIRCRAFT_TUMBLE_SPAN >> 1);
+  air.sy[id] = randInt(state, AIRCRAFT_TUMBLE_SPAN) - (AIRCRAFT_TUMBLE_SPAN >> 1);
+  air.sz[id] = randInt(state, AIRCRAFT_TUMBLE_SPAN) - (AIRCRAFT_TUMBLE_SPAN >> 1);
+}
+
+/** `vec_mac` (0x004585b0)'s factored product: `(v >> 2) * (scale >> 2) >> 12`, 32-bit. */
+function mac(v: number, scale: number): number {
+  return ((v >> 2) * (scale >> 2)) >> 12;
+}
+
+/**
+ * One tick of the tumble (state 3, 0x00420d5c; 0x00420e83..0x00420f28): while
+ * the aircraft is above the surface (`terrain_surface_at`, here the
+ * heightfield) by more than half its radius, the tumble loses 1/64 of the
+ * velocity, gains `(3 - (rand & 0xf)) << 9` of fall, and both integrate by
+ * `delta / 256`; the heading follows the velocity. True when it is down: the
+ * tick that finds it so moves nothing.
+ */
+export function aircraftTumble(state: SimState, id: number): boolean {
+  const ent = state.ent;
+  const air = state.air;
+  const yw = Math.floor(ent.height[id] * WU_PER_METRE);
+  const surface = Math.floor(sampleHeight(state.map, ent.posX[id], ent.posY[id]) * WU_PER_METRE);
+  const halfR = Math.floor(entityRadius(state, id) * WU_PER_METRE) >> 1;
+  if (!(yw > surface + halfR)) {
+    ent.velX[id] = 0;
+    ent.velY[id] = 0;
+    return true;
+  }
+  air.sx[id] += mac(air.vx[id], -0x400);
+  air.sy[id] += mac(air.vy[id], -0x400);
+  air.sz[id] += mac(air.vz[id], -0x400);
+  air.sy[id] += (3 - randInt(state, 16)) << 9;
+  const scale = AIRCRAFT_DELTA_UNITS << 8;
+  air.vx[id] += mac(air.sx[id], scale);
+  air.vy[id] += mac(air.sy[id], scale);
+  air.vz[id] += mac(air.sz[id], scale);
+  const xw = Math.floor(ent.posX[id] * WU_PER_METRE);
+  const zw = Math.floor(ent.posY[id] * WU_PER_METRE);
+  const extent = Math.floor(worldExtent(state.map) * WU_PER_METRE);
+  let nx = xw + mac(air.vx[id], scale);
+  let nz = zw + mac(air.vz[id], scale);
+  nx = nx < 0 ? 0 : nx > extent ? extent : nx;
+  nz = nz < 0 ? 0 : nz > extent ? extent : nz;
+  ent.posX[id] = nx / WU_PER_METRE;
+  ent.posY[id] = nz / WU_PER_METRE;
+  ent.height[id] = (yw + mac(air.vy[id], scale)) / WU_PER_METRE;
+  ent.velX[id] = ((nx - xw) * TICK_HZ) / WU_PER_METRE;
+  ent.velY[id] = ((nz - zw) * TICK_HZ) / WU_PER_METRE;
+  // 0x00420ee3: the heading is the velocity's direction.
+  const vx = air.vx[id];
+  const vy = air.vy[id];
+  const vz = air.vz[id];
+  const l = Math.sqrt(vx * vx + vy * vy + vz * vz);
+  if (l > 0) {
+    air.hx[id] = Math.floor((vx * AIRCRAFT_HEADING_ONE) / l);
+    air.hy[id] = Math.floor((vy * AIRCRAFT_HEADING_ONE) / l);
+    air.hz[id] = Math.floor((vz * AIRCRAFT_HEADING_ONE) / l);
+  }
+  if (vx !== 0 || vz !== 0) ent.yaw[id] = atan2Poly(vz, vx);
+  return false;
+}
+
+/**
+ * The construct's placement and start (`aircraft_construct` 0x00420380) for a
+ * new aircraft at its spawner (x, y already set): `alt_cruise << 4` above the
+ * surface, or 0x20000 wu higher with spawn flag 2, or on the surface plus its
+ * half height in the launch climb with flag 4; level, a heading drawn from the
+ * whole turn (0x004205d1), the steer zeroed. Returns the surface it was placed
+ * over, metres.
+ */
+export function placeAircraft(
+  state: SimState,
+  id: number,
+  f: AircraftFlight,
+  ground: number,
+): boolean {
+  const ent = state.ent;
+  const air = state.air;
+  const gw = Math.floor(ground * WU_PER_METRE);
+  let climb = false;
+  let yw = gw + (f.altCruise << 4);
+  if ((f.spawn & AIRCRAFT_SPAWN_HIGH) !== 0) yw += AIRCRAFT_SPAWN_HIGH_RISE;
+  else if ((f.spawn & AIRCRAFT_SPAWN_CLIMB) !== 0) {
+    yw = gw + (f.halfY << 4);
+    climb = true;
+  }
+  ent.height[id] = yw / WU_PER_METRE;
+  air.sx[id] = 0;
+  air.sy[id] = 0;
+  air.sz[id] = 0;
+  air.vx[id] = 0;
+  air.vy[id] = 0;
+  air.vz[id] = 0;
+  const yaw = (randInt(state, 4096) / 4096) * TAU;
+  air.hx[id] = Math.floor(cosLUT(yaw) * AIRCRAFT_HEADING_ONE);
+  air.hy[id] = 0;
+  air.hz[id] = Math.floor(sinLUT(yaw) * AIRCRAFT_HEADING_ONE);
+  air.upY[id] = AIRCRAFT_HEADING_ONE;
+  air.phase[id] = climb ? AIR_CLIMB : AIR_FLY;
+  ent.yaw[id] = yaw;
+  ent.velX[id] = 0;
+  ent.velY[id] = 0;
+  return climb;
+}
+
+/**
+ * Starts a PA aircraft as the construct does (0x00420380): placed by its
+ * record (placeAircraft), in CRUISE (the records' state byte 1) on its cruise
+ * dwell — or in the launch climb — to a destination drawn inside its box
+ * (0x00420607), searching on its first tick (the timer starts at -1).
+ */
+export function startAircraft(state: SimState, id: number, ground: number): void {
   const ent = state.ent;
   const fortress = ent.archetype[id] === ARCHETYPE.FORTRESS;
+  placeAircraft(state, id, aircraftFlight(state, id), ground);
   ent.mode[id] |= AIR_CRUISE;
   ent.timerC[id] = fortress ? FORTRESS_DWELL_CRUISE : GUARDIAN_DWELL_CRUISE;
   pickDestination(state, id);
@@ -557,14 +978,15 @@ export function startAircraft(state: SimState, id: number): void {
 }
 
 /**
- * An aircraft's level-flight speed: the original's records (jet 2048 raw = 4.0
- * m/s, Flying Fortress 2457 = 4.8 m/s; fcop-re/ai-and-rules.md §4), on every
- * arena since SIM_VERSION 52.
+ * An aircraft's speed word (`+0xf4`): its record's raw `<< 12` over 300 (the
+ * construct, 0x004204bc) — the jet's 2048 raw 27962, the Flying Fortress' 2457
+ * 33546 — which `aircraft_fly` turns into `speed * delta >> 8` wu a tick: 4.0 and
+ * 4.8 m/s level (fcop-re/ai-and-rules.md §4).
  */
-export function airSpeed(state: SimState, id: number): number {
+export function airSpeedRaw(state: SimState, id: number): number {
   return state.ent.archetype[id] === ARCHETYPE.FORTRESS
-    ? FORTRESS_AIRCRAFT_SPEED
-    : GUARDIAN_AIRCRAFT_SPEED;
+    ? FORTRESS_AIRCRAFT_SPEED_RAW
+    : GUARDIAN_AIRCRAFT_SPEED_RAW;
 }
 
 /** True when ground units on this map follow the original's routes (rules.md §9). */
@@ -1165,12 +1587,8 @@ export function worstHoverRise(
 /** Height rule shared by movement, separation and spawning. */
 export function snapUnitHeight(state: SimState, id: number, air: boolean): void {
   const ent = state.ent;
-  if (air) {
-    const g = sampleHeight(state.map, ent.posX[id], ent.posY[id]);
-    const floor = g < state.map.waterLevel ? state.map.waterLevel : g;
-    ent.height[id] = floor + AIR_ALTITUDE;
-    return;
-  }
+  // An aircraft's height is its flight's (aircraftFly, placeAircraft).
+  if (air) return;
   const wr = resolveWalker(state.map, ent.posX[id], ent.posY[id], ent.height[id]);
   ent.entLayer[id] = wr.layer;
   ent.height[id] = wr.height;

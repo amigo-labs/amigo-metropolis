@@ -2,7 +2,7 @@
   "mission": "Joke",
   "source": {
     "repo": "amigo-labs/fcop-reverse-engineering",
-    "commit": "f3d4200fde09e6c81054c052d5551fd43491e4ac",
+    "commit": "c077cb2d088fbd2a011d2738dde848d3583cd4b0",
     "tool": "tools/gfx/pa_models.py; fixtures/missions (3DBB)"
   },
   "radii": {
@@ -47,6 +47,28 @@
     ],
     "skyCaptain": [25, 25, 25, 25, 25, 25, 25, 25, 25, -62]
   },
+  "halves": {
+    "x1": {
+      "cobj": 15,
+      "walker": 189,
+      "hover": 89
+    },
+    "tank": 167,
+    "jet": 154,
+    "fortress": 241,
+    "dreadnought": 295,
+    "dreadnoughtByFrame": [
+      295, 323, 356, 385, 407, 419, 423, 422, 420, 411, 419, 421, 424, 424, 419, 407, 390, 370, 344,
+      317
+    ],
+    "baseTurret": 233,
+    "neutral": [
+      355, 355, 355, 355, 355, 355, 355, 355, 355, 355, 355, 355, 355, 355, 355, 355, 355, 355, 355,
+      355, 355, 355, 355, 355, 355, 355, 355, 355, 355
+    ],
+    "skyCaptain": [418, 418, 418, 418, 418, 418, 418, 418, 418, 469]
+  },
+  "skyCaptainTemplates": [164, 164, 164, 164, 164, 164, 164, 164, 164, 292],
   "dreadnought": {
     "hull": 35,
     "hullSha": "d4ddecfae3ba8680",

@@ -260,7 +260,7 @@ export function roundSpeed(raw: number): number {
 }
 
 /** Acceleration: trunc(raw * 256 / 300) / 16 wu per unit per unit, in m/s². */
-function acceleration(raw: number): number {
+export function acceleration(raw: number): number {
   return ((((raw * 256) / 300) | 0) / 16) * ((300 * 300) / 8192);
 }
 
