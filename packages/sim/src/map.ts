@@ -673,6 +673,28 @@ export interface MapCoarse {
 }
 
 /**
+ * The original's terrain plates for the terrain trace (trace.ts; fcop-fidelity.md
+ * T1; gen:trace): the Cptc grid's section id per cell and each section's `Sect`
+ * bytes as the container carries them. The original's (x = 0, z = 0) stands at the
+ * sim's (originX, originY): the original's z runs along the sim's x, its x along
+ * the sim's y, both 8192 world units a metre.
+ */
+export interface MapTrace {
+  readonly originX: number;
+  readonly originY: number;
+  /** Grid cells on the original's z (the sim's x). */
+  readonly width: number;
+  /** Grid cells on the original's x (the sim's y). */
+  readonly height: number;
+  /** Per grid cell `x * width + z`: the Ctil section id its word names. */
+  readonly cells: Int32Array;
+  /** By section id: the byte offset of its `Sect` in `bytes`, -1 for none. */
+  readonly sectAt: Int32Array;
+  /** Every section's `Sect` bytes, back to back. */
+  readonly bytes: Uint8Array;
+}
+
+/**
  * One of the original's lifts (type-10 actor, `elevator.c`; fcop-fidelity.md
  * P12; RE `camera-and-movement.md` "Lifts"). It moves only its height, between
  * `stops` above the ground it was built on: from a stop whose `dwell` is 0 it
@@ -926,6 +948,8 @@ export interface MapData {
   readonly lifts: readonly MapLift[];
   /** The original's coarse ground-height field; null off the FCOP arenas. */
   readonly coarse: MapCoarse | null;
+  /** The original's terrain plates for the terrain trace; null off the FCOP arenas. */
+  readonly trace: MapTrace | null;
 }
 
 /**
@@ -1347,6 +1371,15 @@ export interface MapJson {
     rows: number;
     stride: number;
     field: string[];
+  };
+  /** OPTIONAL: the terrain plates (MapTrace), each section's bytes base64. */
+  trace?: {
+    originX: number;
+    originY: number;
+    width: number;
+    height: number;
+    cells: number[];
+    sections: { id: number; data: string }[];
   };
 }
 
@@ -2678,6 +2711,7 @@ export function loadMapFromJson(raw: MapJson): MapData {
     spawnGuards,
     lifts,
     coarse: parseCoarse(id, raw.coarse),
+    trace: parseTrace(id, raw.trace),
   };
 }
 
@@ -2738,6 +2772,72 @@ function parseCoarse(id: string, raw: MapJson["coarse"]): MapCoarse | null {
     for (let c = 0; c < stride; c++) data[r * stride + c] = parseInt(row.substr(c * 2, 2), 16);
   }
   return { originX, originY, rows, stride, data };
+}
+
+const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** Standard base64 to bytes; null when the text is not base64. */
+function decodeBase64(text: string): Uint8Array | null {
+  if (text.length % 4 !== 0) return null;
+  let pad = 0;
+  if (text.endsWith("==")) pad = 2;
+  else if (text.endsWith("=")) pad = 1;
+  const out = new Uint8Array((text.length / 4) * 3 - pad);
+  let o = 0;
+  for (let i = 0; i < text.length; i += 4) {
+    let v = 0;
+    for (let k = 0; k < 4; k++) {
+      const ch = text[i + k];
+      const d = ch === "=" ? 0 : BASE64.indexOf(ch);
+      if (d < 0) return null;
+      v = (v << 6) | d;
+    }
+    if (o < out.length) out[o++] = (v >> 16) & 0xff;
+    if (o < out.length) out[o++] = (v >> 8) & 0xff;
+    if (o < out.length) out[o++] = v & 0xff;
+  }
+  return out;
+}
+
+/** The smallest `Sect` the trace may index: past the plate words' start. */
+const TRACE_SECT_MIN = 0x5d0;
+
+function parseTrace(id: string, raw: MapJson["trace"]): MapTrace | null {
+  if (raw === undefined) return null;
+  const { originX, originY, width, height, cells, sections } = raw;
+  if (!Number.isFinite(originX) || !Number.isFinite(originY)) fail(id, "trace origin");
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 2 || height < 2) {
+    fail(id, "trace needs an integer grid of at least 2 x 2");
+  }
+  if (!Array.isArray(cells) || cells.length !== width * height) {
+    fail(id, `trace needs ${width * height} cells`);
+  }
+  let maxId = 0;
+  for (const c of cells) {
+    if (!Number.isInteger(c) || c < 0 || c > 0x3fff) fail(id, "trace cell id out of range");
+    if (c > maxId) maxId = c;
+  }
+  if (!Array.isArray(sections)) fail(id, "trace sections is not a list");
+  const decoded: { id: number; data: Uint8Array }[] = [];
+  let total = 0;
+  for (const s of sections) {
+    if (!Number.isInteger(s.id) || s.id < 0 || s.id > 0x3fff) fail(id, "trace section id");
+    const data = typeof s.data === "string" ? decodeBase64(s.data) : null;
+    if (data === null || data.length < TRACE_SECT_MIN) fail(id, `trace section ${s.id} bytes`);
+    decoded.push({ id: s.id, data });
+    total += data.length;
+    if (s.id > maxId) maxId = s.id;
+  }
+  const sectAt = new Int32Array(maxId + 1).fill(-1);
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const s of decoded) {
+    if (sectAt[s.id] >= 0) fail(id, `trace section ${s.id} twice`);
+    sectAt[s.id] = at;
+    bytes.set(s.data, at);
+    at += s.data.length;
+  }
+  return { originX, originY, width, height, cells: Int32Array.from(cells), sectAt, bytes };
 }
 
 /** World units a metre, and the coarse field's cell (two terrain samples): `>> 14`. */
@@ -2888,5 +2988,6 @@ export function createTestMap(): MapData {
     spawnGuards: [],
     lifts: [],
     coarse: null,
+    trace: null,
   };
 }
