@@ -295,12 +295,17 @@ describe("Walker Deaths, Walker Kills and First Death (player.c player_op4)", ()
     expect(state.avatarId[1]).toBe(-1);
   }
 
-  /** A Sky Captain match with the captain at (x, y) on 1 health. */
+  /**
+   * A Sky Captain match with the captain at (x, y), 2 m over the ground, on 1
+   * health (a captain left at its spawn's height there would stand inside the
+   * ground, and the terrain trace's floors stop every shot at it).
+   */
   function captainAt(x: number, y: number): SimState {
     const state = createSim(map, 5, { wardenPlayer: 1, wardenDifficulty: 1 });
     const w = state.avatarId[1];
     state.ent.posX[w] = x;
     state.ent.posY[w] = y;
+    state.ent.height[w] = sampleHeight(state.map, x, y) + 2;
     state.ent.hp[w] = 1;
     return state;
   }

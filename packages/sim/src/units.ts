@@ -79,11 +79,19 @@ import {
   WU_PER_METRE,
   wardenLevel,
 } from "./balance";
-import { crossesWallX, crossesWallY, segmentBlocked } from "./collision";
+import { crossesWallX, crossesWallY } from "./collision";
 import { coarseHeightAt, type MapData, sampleHeight, sampleLayerHeight, worldExtent } from "./map";
 import { followsRoutes, routeContacts, routeTick, routeTraffic } from "./route";
-import { ANIM_MOVING, entityRadius, rideHeight, type SimState, STEP_SNAP } from "./sim";
+import {
+  ANIM_MOVING,
+  entityRadius,
+  entityRefHeight,
+  rideHeight,
+  type SimState,
+  STEP_SNAP,
+} from "./sim";
 import { atan2Poly, cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
+import { traceLine } from "./trace";
 import { animStep, T_MODE } from "./walker";
 
 export { followsRoutes };
@@ -161,6 +169,9 @@ export function nearestEnemyFrom(
     if (state.buffInvis[1] > 0) hidden1 = state.avatarId[1];
   }
   const team = ent.team[id];
+  // The searcher's reference point, the line's start (`cact_find_target`
+  // 0x0043bd74 traces between the two reference points, floors off).
+  const fromH = ent.height[id] + entityRefHeight(state, id);
   // Outpost consoles cannot be destroyed on any arena (fcop-fidelity.md R14,
   // sim.ts applyDamage), so nothing shoots at one.
   let bestD2 = range * range;
@@ -184,7 +195,20 @@ export function nearestEnemyFrom(
       ? d2 < range2 && (prio > bestPrio || (prio === bestPrio && d2 < bestD2))
       : d2 < bestD2;
     if (better) {
-      if (lineOfSight && segmentBlocked(state.map, x, y, ent.posX[t], ent.posY[t])) {
+      if (
+        lineOfSight &&
+        traceLine(
+          state.map,
+          state.trace,
+          x,
+          y,
+          fromH,
+          ent.posX[t],
+          ent.posY[t],
+          ent.height[t] + entityRefHeight(state, t),
+          0,
+        ) !== 0
+      ) {
         continue; // wall between us — invisible, so neither halt nor shot
       }
       bestD2 = d2;

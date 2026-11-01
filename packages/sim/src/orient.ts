@@ -33,6 +33,7 @@ import {
 import { angleOf, followsRoutes } from "./route";
 import { entityRefHeight, type SimState } from "./sim";
 import { cosLUT, sinLUT } from "./simMath";
+import { X1_MUZZLE_WORDS, X1_MUZZLES } from "./x1Muzzles.generated";
 import { X1_LEGS_POINT0 } from "./x1Shapes.generated";
 
 /** An angle unit (4096 a turn), radians. */
@@ -219,6 +220,12 @@ export interface CockpitAim {
   readonly yaw: Int16Array;
   readonly pitch: Int16Array;
   readonly owner: Int32Array;
+  /**
+   * The two guns' recoil countdowns per player (`view->recoil`, player * 2 +
+   * gun), engine units: X1_RECOIL_START when the Heavy slot launches from that
+   * gun (`player_fire_launch` 0x00459179), spent by the partner's tick. Hashed.
+   */
+  readonly recoil: Int16Array;
 }
 
 export function createCockpitAim(): CockpitAim {
@@ -226,6 +233,7 @@ export function createCockpitAim(): CockpitAim {
     yaw: new Int16Array(MAX_PLAYERS),
     pitch: new Int16Array(MAX_PLAYERS),
     owner: new Int32Array(MAX_PLAYERS).fill(-1),
+    recoil: new Int16Array(MAX_PLAYERS * 2),
   };
 }
 
@@ -276,58 +284,128 @@ export function cockpitMount(state: SimState, p: number, id: number): void {
   cockpitAt.h = ent.height[id] + my;
 }
 
+/** The recoil's start, its knee, and the partner's frame delta (balance.ts X1_UNITS_PER_TICK). */
+export const X1_RECOIL_START = 0x84;
+const X1_RECOIL_KNEE = 0x58;
+const PARTNER_DELTA = 10;
+
+/** Is player `p`'s avatar an X1 the partner's tick runs for? */
+function partnerLive(state: SimState, p: number): number {
+  const id = state.avatarId[p];
+  if (p === state.wardenPlayer || id < 0) return -1;
+  const ent = state.ent;
+  return ent.alive[id] && ent.archetype[id] === ARCHETYPE.AVATAR ? id : -1;
+}
+
 /**
- * The partner's aim, once a tick for every X1 (`player_partner_tick`
- * 0x004470d0, after the mech has moved): toward the lock's reference point
- * from the cockpit's mount -- the pitch `(-angle_of(run, rise)) >> 12`
- * (the `neg` before the `sar`, 0x004471b7), clamped to +-0x190; the yaw the
- * bearing less the facing, above 0x800 a turn less, clamped to +-0x80 -- each
- * stepped COCKPIT_AIM_STEP a tick; straight ahead with no lock. The lock's
- * reference point is its position at its reference height (entityRefHeight),
- * as the sim's other aims take it.
+ * The partner's tick for player `p` (`player_partner_tick` 0x004470d0), which
+ * the original runs in the mech's own tick after it has moved and before its
+ * weapon buttons (`player_tick` 0x00447059, then 0x00447080): the aim toward
+ * the lock's reference point from the cockpit's mount -- the pitch
+ * `(-angle_of(run, rise)) >> 12` (the `neg` before the `sar`, 0x004471b7),
+ * clamped to +-0x190; the yaw the bearing less the facing, above 0x800 a turn
+ * less, clamped to +-0x80 -- each stepped COCKPIT_AIM_STEP a tick, straight
+ * ahead with no lock; then the guns' recoil countdowns, each spending the frame
+ * delta (0x00447318). The lock's reference point is its position at its
+ * reference height (entityRefHeight), as the sim's other aims take it.
  */
-export function systemCockpitAim(state: SimState): void {
+export function partnerTick(state: SimState, p: number): void {
   const ent = state.ent;
   const aim = state.cockpitAim;
-  for (let p = 0; p < MAX_PLAYERS; p++) {
-    const id = state.avatarId[p];
-    if (
-      p === state.wardenPlayer ||
-      id < 0 ||
-      !ent.alive[id] ||
-      ent.archetype[id] !== ARCHETYPE.AVATAR
-    ) {
-      aim.owner[p] = -1;
-      aim.yaw[p] = 0;
-      aim.pitch[p] = 0;
-      continue;
-    }
-    if (aim.owner[p] !== id) {
-      aim.owner[p] = id;
-      aim.yaw[p] = 0;
-      aim.pitch[p] = 0;
-    }
-    const lock = state.lockTarget[p];
-    let pitch = 0;
-    let yaw = 0;
-    if (lock >= 0 && ent.alive[lock]) {
-      cockpitMount(state, p, id);
-      // World units, the engine's axes: x the sim's y, z the sim's x.
-      const dz = Math.round((ent.posX[lock] - cockpitAt.x) * WU_PER_METRE);
-      const dx = Math.round((ent.posY[lock] - cockpitAt.y) * WU_PER_METRE);
-      const dy = Math.round(
-        (ent.height[lock] + entityRefHeight(state, lock) - cockpitAt.h) * WU_PER_METRE,
-      );
-      pitch = -angleOf(aimHorizontal(dx, dz), dy) >> 12;
-      if (pitch < -COCKPIT_AIM_PITCH_LIMIT) pitch = -COCKPIT_AIM_PITCH_LIMIT;
-      else if (pitch > COCKPIT_AIM_PITCH_LIMIT) pitch = COCKPIT_AIM_PITCH_LIMIT;
-      const facing = Math.floor(ent.yaw[id] / ANGLE_UNIT + 0.5) & 0xfff;
-      yaw = ((angleOf(dz, dx) >> 12) - facing) & 0xfff;
-      if (yaw > 0x800) yaw -= 0x1000;
-      if (yaw < -COCKPIT_AIM_YAW_LIMIT) yaw = -COCKPIT_AIM_YAW_LIMIT;
-      else if (yaw > COCKPIT_AIM_YAW_LIMIT) yaw = COCKPIT_AIM_YAW_LIMIT;
-    }
-    aim.pitch[p] = aimStep(aim.pitch[p], pitch);
-    aim.yaw[p] = aimStep(aim.yaw[p], yaw);
+  const id = partnerLive(state, p);
+  if (id < 0) return;
+  if (aim.owner[p] !== id) {
+    aim.owner[p] = id;
+    aim.yaw[p] = 0;
+    aim.pitch[p] = 0;
+    aim.recoil[p * 2] = 0;
+    aim.recoil[p * 2 + 1] = 0;
   }
+  const lock = state.lockTarget[p];
+  let pitch = 0;
+  let yaw = 0;
+  if (lock >= 0 && ent.alive[lock]) {
+    cockpitMount(state, p, id);
+    // World units, the engine's axes: x the sim's y, z the sim's x.
+    const dz = Math.round((ent.posX[lock] - cockpitAt.x) * WU_PER_METRE);
+    const dx = Math.round((ent.posY[lock] - cockpitAt.y) * WU_PER_METRE);
+    const dy = Math.round(
+      (ent.height[lock] + entityRefHeight(state, lock) - cockpitAt.h) * WU_PER_METRE,
+    );
+    pitch = -angleOf(aimHorizontal(dx, dz), dy) >> 12;
+    if (pitch < -COCKPIT_AIM_PITCH_LIMIT) pitch = -COCKPIT_AIM_PITCH_LIMIT;
+    else if (pitch > COCKPIT_AIM_PITCH_LIMIT) pitch = COCKPIT_AIM_PITCH_LIMIT;
+    const facing = Math.floor(ent.yaw[id] / ANGLE_UNIT + 0.5) & 0xfff;
+    yaw = ((angleOf(dz, dx) >> 12) - facing) & 0xfff;
+    if (yaw > 0x800) yaw -= 0x1000;
+    if (yaw < -COCKPIT_AIM_YAW_LIMIT) yaw = -COCKPIT_AIM_YAW_LIMIT;
+    else if (yaw > COCKPIT_AIM_YAW_LIMIT) yaw = COCKPIT_AIM_YAW_LIMIT;
+  }
+  aim.pitch[p] = aimStep(aim.pitch[p], pitch);
+  aim.yaw[p] = aimStep(aim.yaw[p], yaw);
+  // The recoil: one already at zero or below is not written; one the delta
+  // takes to zero or below stores 0 (0x00447374, 0x0044736f).
+  for (let g = 0; g < 2; g++) {
+    const t = aim.recoil[p * 2 + g];
+    if (t <= 0) continue;
+    const left = t - PARTNER_DELTA;
+    aim.recoil[p * 2 + g] = left > 0 ? left : 0;
+  }
+}
+
+/**
+ * The partners of the players whose tick did not run them this tick: a player
+ * with no live X1 (none yet, dead, the Warden's slot) has its aim and recoil
+ * back at rest and no owner, so the next X1 starts straight ahead.
+ */
+export function systemCockpitAim(state: SimState): void {
+  const aim = state.cockpitAim;
+  for (let p = 0; p < MAX_PLAYERS; p++) {
+    if (partnerLive(state, p) >= 0) continue;
+    aim.owner[p] = -1;
+    aim.yaw[p] = 0;
+    aim.pitch[p] = 0;
+    aim.recoil[p * 2] = 0;
+    aim.recoil[p * 2 + 1] = 0;
+  }
+}
+
+/** Scratch: an X1 gun's muzzle, metres (module scope, no allocation per tick). */
+export const muzzleAt = { x: 0, y: 0, h: 0 };
+const cockpitFrame = createFrame();
+
+/**
+ * Where player `p`'s gun `gun` (0 `model_178`, 1 `model_1c4`) has its muzzle:
+ * the gun model's point 0 (`cact_model_block_point(gun, 0, ..)`, 0x00429830) on
+ * its block as the partner's tick placed it -- the cockpit skeleton's record
+ * for that gun at the cockpit's frame (x1Muzzles.generated.ts), pushed along the
+ * gun's row 2 by its recoil's kick (0x00447338: `(t - 0x84) << 4` above the
+ * knee, `-t << 3` below it, through `math_fixed_mul`), then through the
+ * partner's matrix `math_matrix_from_angles(facing + aim yaw, aim pitch, 0)` on
+ * the cockpit's mount. Into muzzleAt.
+ */
+export function x1Muzzle(state: SimState, p: number, id: number, gun: number): void {
+  cockpitMount(state, p, id);
+  const aim = state.cockpitAim;
+  const frames = X1_MUZZLES.length / X1_MUZZLE_WORDS;
+  const cf = state.walker.cockpit.frame[p];
+  const o = (cf >= 0 && cf < frames ? cf : 0) * X1_MUZZLE_WORDS + (gun & 1) * 6;
+  let mx = X1_MUZZLES[o];
+  let my = X1_MUZZLES[o + 1];
+  let mz = X1_MUZZLES[o + 2];
+  const t = aim.recoil[p * 2 + (gun & 1)];
+  if (t > 0) {
+    const kick = t > X1_RECOIL_KNEE ? (t - X1_RECOIL_START) << 4 : -t << 3;
+    mx += Math.floor((X1_MUZZLES[o + 3] * kick) / 65536);
+    my += Math.floor((X1_MUZZLES[o + 4] * kick) / 65536);
+    mz += Math.floor((X1_MUZZLES[o + 5] * kick) / 65536);
+  }
+  angleFrame(cockpitFrame, state.ent.yaw[id] + aim.yaw[p] * ANGLE_UNIT, aim.pitch[p], 0);
+  const f = cockpitFrame;
+  const lx = mx / WU_PER_METRE;
+  const ly = my / WU_PER_METRE;
+  const lz = mz / WU_PER_METRE;
+  muzzleAt.x = cockpitAt.x + lx * f.ax[0] + ly * f.ay[0] + lz * f.az[0];
+  muzzleAt.y = cockpitAt.y + lx * f.ax[1] + ly * f.ay[1] + lz * f.az[1];
+  muzzleAt.h = cockpitAt.h + lx * f.ax[2] + ly * f.ay[2] + lz * f.az[2];
 }

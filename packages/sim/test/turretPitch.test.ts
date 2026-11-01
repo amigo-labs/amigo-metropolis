@@ -56,7 +56,11 @@ function clearSpot(state: SimState, x: number, y: number, dist: number): [number
   throw new Error("no clear spot");
 }
 
-/** A team-0 ring turret, the enemy avatar parked `dist` m off, the turret `drop` m lower. */
+/**
+ * A team-0 ring turret and the enemy avatar parked `dist` m off, held `drop` m
+ * above the turret's own ground (the terrain trace has floors since T1: a
+ * turret sunk below its ground, as this fixture once made one, sees nothing).
+ */
 function duel(dist: number, drop: number) {
   const state = createSim(map, 1);
   const ent = state.ent;
@@ -65,14 +69,16 @@ function duel(dist: number, drop: number) {
     if (ent.team[state.baseTurretEntity[k]] === 0) t = state.baseTurretEntity[k];
   }
   const [fx, fy] = clearSpot(state, ent.posX[t], ent.posY[t], dist);
-  ent.height[t] -= drop;
+  const fh = ent.height[t] + drop;
   const foe = state.avatarId[1];
   ent.hp[foe] = 1e6;
   const park = () => {
     ent.posX[foe] = fx;
     ent.posY[foe] = fy;
+    ent.height[foe] = fh;
     ent.velX[foe] = 0;
     ent.velY[foe] = 0;
+    ent.timerB[foe] = 0;
   };
   park();
   return { state, ent, t, foe, park };

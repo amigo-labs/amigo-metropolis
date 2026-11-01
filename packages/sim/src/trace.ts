@@ -35,7 +35,8 @@
 //
 // Zero allocations: the scratch is module-level.
 
-import type { MapTrace } from "./map";
+import { segmentBlockT } from "./collision";
+import type { MapData, MapTrace } from "./map";
 import { TERRAIN_TYPE_CORNERS, TERRAIN_TYPE_FLAGS } from "./traceTables.generated";
 
 /** trace.h TRACE_KIND_*: which line of the cell a wall stands on, or a floor. */
@@ -750,4 +751,63 @@ export function terrainTraceSegment(
     start[1] = end[1];
     start[2] = end[2];
   }
+}
+
+// --- the sim's frame ----------------------------------------------------------
+
+/** World units a metre (8192, the engine's). */
+const WU = 8192;
+
+/** Where the last blocked traceLine stopped, the sim's metres (x, y, height). */
+export const traceHit = { x: 0, y: 0, h: 0 };
+
+const lineFrom = new Int32Array(3);
+const lineTo = new Int32Array(3);
+const lineHit = new Int32Array(3);
+
+/**
+ * The terrain trace in the sim's frame: does the segment from (x0, y0, h0) to
+ * (x1, y1, h1), metres, reach its end? 0 when it does; else the result word of
+ * terrainTraceSegment and the point it stopped at in traceHit. `hitFloors` is the
+ * original caller's argument (1: floors stop it too; 0: walls only).
+ *
+ * The ends go to world units as the actors' positions do: the original's x is
+ * the sim's y less the plates' originY, its z the sim's x less originX, its y the
+ * height, each `floor(m * 8192)`. On a map with no plates (the test maps, the
+ * sandbox) the wall lattice of layer 0 stands in (collision.ts segmentBlockT),
+ * walls of any height and no floors, as every line test was before T1.
+ */
+export function traceLine(
+  map: MapData,
+  st: TraceScratch,
+  x0: number,
+  y0: number,
+  h0: number,
+  x1: number,
+  y1: number,
+  h1: number,
+  hitFloors: number,
+): number {
+  const t = map.trace;
+  if (t === null) {
+    const k = segmentBlockT(map, x0, y0, x1, y1);
+    if (k < 0) return 0;
+    traceHit.x = x0 + (x1 - x0) * k;
+    traceHit.y = y0 + (y1 - y0) * k;
+    traceHit.h = h0 + (h1 - h0) * k;
+    return TRACE_KIND_WALL_X;
+  }
+  lineFrom[0] = Math.floor((y0 - t.originY) * WU);
+  lineFrom[1] = Math.floor(h0 * WU);
+  lineFrom[2] = Math.floor((x0 - t.originX) * WU);
+  lineTo[0] = Math.floor((y1 - t.originY) * WU);
+  lineTo[1] = Math.floor(h1 * WU);
+  lineTo[2] = Math.floor((x1 - t.originX) * WU);
+  const r = terrainTraceSegment(t, lineFrom, lineTo, lineHit, hitFloors, st);
+  if (r !== 0) {
+    traceHit.x = lineHit[2] / WU + t.originX;
+    traceHit.y = lineHit[0] / WU + t.originY;
+    traceHit.h = lineHit[1] / WU;
+  }
+  return r;
 }

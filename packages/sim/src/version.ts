@@ -1720,4 +1720,31 @@
 //     indices are hashed (SimState.shooterMuzzle, CaptainState.muzzle); the
 //     captain's carry over its respawn (`sky_respawn` 0x00422bc0 re-inits no
 //     shooter). gen:pamodels carries points 0 and 1 (MapUnitShape.muzzles).
-export const SIM_VERSION = 116;
+// v117: the original's terrain trace for every line test (fcop-fidelity.md T1;
+//     `terrain_trace_segment` 0x00454790 and `terrain_trace_cell` 0x00455480,
+//     trace.ts, checked bit for bit against the decompiled trace's rays), over
+//     each FCOP arena's own plates (MapData.trace, gen:trace): the X1's direct
+//     shot (from its gun's muzzle, to a point scattered about the lock's
+//     reference point by the block's +0x0e or half its half_h, the Electric
+//     Gun's 3264 wu, the Gatling Laser's exact; floors on), the Sky Captain's
+//     gun, every shooter's clear line (muzzle to the target's reference point,
+//     floors on), every round's step (a missile's swept from where it was with
+//     the floors off, standing at the hit; a lobbed shell's with them, left
+//     where it was), the K-9 Drone's and the bouncing rounds' (floors off), the
+//     target searches' line (reference point to reference point, floors off),
+//     the sustained weapons' trails (floors on), the walker's head (floors on)
+//     and the X1's walls: its footprint's four corners traced from where the
+//     last push left them and along its edges each tick, every wall kind once
+//     a push of 0x24000 toward the footprint's centre along its normal, the
+//     kind the snap (`player_ground_probe` 0x00443680, `player_ground_push`
+//     0x00443490) -- no wall stops the move any more on an arena with plates.
+//     The X1 fires from its guns' model point 0 (gen:x1muzzles: Mp's Cobj 17's
+//     point on Cobj 16's skeleton records 5 and 3, the gun by the low bit of
+//     the ammo spent), its partner's tick (aim, recoil) runs before its weapons
+//     as the original's mech tick has it, and a Heavy launch kicks its gun back
+//     0x84 engine units (`player_fire_launch` 0x00459179). Hashed: the recoil,
+//     the trace's carried pick, the footprint's corners and their set bit, and
+//     the contact model's foot height (SHAPE_STATE_WORDS 9). Maps without
+//     plates (the test maps, the sandbox) keep the wall lattice's 2D test.
+//     Every golden diverges.
+export const SIM_VERSION = 117;

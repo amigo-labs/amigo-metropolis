@@ -193,19 +193,16 @@ describe("an unescorted bought push against an intact defence, per arena", () =>
   // on the tank road just past its ring.
   // Re-measured at SIM_VERSION 61 (the heavy-zone poll's and the spawn queues'
   // draws at createSim move every PA arena's PRNG stream): on la-cantina the lone
-  // Runner breaches on 3 of seeds c0ffee/1/2/3/4 (1, 2, 3; in 36-96 s) and dies
-  // 19-21 m out on the other two; on the other three arenas it breaches on none
-  // (7-18 m out), the Juggernaut on all (46-103 s). The breach is the road's, so
-  // it is pinned on seed 1, one that takes it.
-  it("a lone Runner drives through la-cantina's ring and is stopped short on urban-jungle", () => {
-    const lc = push(LA_CANTINA_ID, ARCHETYPE.RUNNER, 1, 1);
-    expect(lc.breachAt).toBeGreaterThan(0);
-    const uj = push(URBAN_JUNGLE_ID, ARCHETYPE.RUNNER, 1);
-    expect(uj.breachAt).toBe(-1);
-  });
-
-  it("a lone Runner does not get through an intact ring on proving-ground or bug-hunt", () => {
-    for (const id of [PROVING_GROUND_ID, BUG_HUNT_ID]) {
+  // Runner breached on 3 of seeds c0ffee/1/2/3/4 and died 19-21 m out on the
+  // other two; on the other three arenas it breached on none.
+  // Re-measured at SIM_VERSION 117 (the original's terrain trace, fcop-fidelity.md
+  // T1): the ring's guns see over the ledges the wall lattice used to close, so
+  // the lone Runner breaches on no arena and no seed of c0ffee/1/2/3/4 -- it dies
+  // 15-20 m out on la-cantina, 11-16 m on urban-jungle, 12-17 m on
+  // proving-ground, 8-16 m on bug-hunt -- and the Juggernaut breaches all four on
+  // seeds c0ffee/1/2 in 65-108 s.
+  it("a lone Runner does not get through an intact ring on any of the four arenas", () => {
+    for (const id of PA_ARENAS) {
       const r = push(id, ARCHETYPE.RUNNER, 1);
       expect(r.breachAt).toBe(-1);
       expect(r.closest).toBeGreaterThan(4);
@@ -265,7 +262,10 @@ describe("a Warden vs an idle player on la-cantina", () => {
   // route followers at their cursor's height on their hull's matrix, the
   // aircraft's and the cockpit's colliders turned as the original's) the
   // match ends at tick 2156. Since SIM_VERSION 116 (the aircraft fire from
-  // their model's points) at tick 2151.
+  // their model's points) at tick 2151. Since SIM_VERSION 117 (the original's
+  // terrain trace for every line test, fcop-fidelity.md T1) its opening order
+  // dies at the ring, whose guns now see over the ledges, and the match ends at
+  // tick 11438 (381 s), still inside the fifteen minutes.
   const state = createSim(MAP, 0xc0ffee, { wardenPlayer: 1, wardenDifficulty: 8 });
   const idle = createTickInputs();
   let captures = 0;
@@ -279,7 +279,7 @@ describe("a Warden vs an idle player on la-cantina", () => {
 
   it("resolves the match through the gate inside fifteen minutes (measured)", () => {
     expect(state.winner).toBe(1);
-    expect(state.tick).toBe(2151);
+    expect(state.tick).toBe(11438);
   });
 
   it("funds that push from capture income that is not absurd", () => {
@@ -373,8 +373,18 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
   // original's): 19 of 20 resolve, in 49-114 s; urban-jungle seed c0ffee does
   // not. Of the pinned seeds 11 of 12. At SIM_VERSION 116 (the aircraft fire
   // from their model's points): the same 19 of 20, in 52-115 s.
+  // Re-measured at SIM_VERSION 117 (every shot, round and clear line on the
+  // original's terrain trace; the X1 pushed off the plates' walls by its
+  // footprint; fcop-fidelity.md T1), seeds c0ffee/1/2/3/4, fifteen minutes: the
+  // rings' guns see over the ledges the lattice used to close, so the captain's
+  // tanks die at them far more often -- 7 of 20 resolve, in 104-457 s
+  // (la-cantina c0ffee and 4, urban-jungle c0ffee and 4, proving-ground 2 and
+  // 4, bug-hunt 1). Of the pinned seeds 6 of 12, all inside the twelve minutes.
   const UNRESOLVED: Record<string, number[]> = {
-    [URBAN_JUNGLE_ID]: [0xc0ffee],
+    [LA_CANTINA_ID]: [2],
+    [URBAN_JUNGLE_ID]: [2],
+    [PROVING_GROUND_ID]: [0xc0ffee],
+    [BUG_HUNT_ID]: [0xc0ffee, 2, 4],
   };
   const TWELVE_MINUTES = 12 * 60 * 30;
   for (const id of PA_ARENAS) {
@@ -396,7 +406,7 @@ describe("a d8 Warden (the Sky Captain at level 7) against an idle player", () =
           continue;
         }
         expect(state.winner).toBe(1);
-        expect(state.tick).toBeLessThan(3 * 60 * 30);
+        expect(state.tick).toBeLessThan(TWELVE_MINUTES);
       }
     });
   }

@@ -200,13 +200,15 @@ import {
   X1_TERMINAL_FALL,
   X1_UNITS_PER_TICK,
 } from "./balance";
-import { crossesWallX, crossesWallY, segmentBlocked, segmentBlockT } from "./collision";
+import { crossesWallX, crossesWallY } from "./collision";
 import {
+  bodyHalfH,
   legsRadius,
   legsRefHeight,
   PUSH_OUT,
   pushContacts,
   roundContact,
+  S_FOOT_Y,
   SHAPE_STATE_WORDS,
   shapeBounds,
   shapeTransform,
@@ -300,7 +302,12 @@ import {
   type CockpitAim,
   createCockpitAim,
   createFrame,
+  muzzleAt,
+  partnerTick,
   systemCockpitAim,
+  X1_RECOIL_START,
+  x1Muzzle,
+  yawFrame,
 } from "./orient";
 import {
   createRouteCursors,
@@ -342,6 +349,14 @@ import {
   shockwaveFire,
   systemSustain,
 } from "./sustain";
+import {
+  newTraceScratch,
+  TRACE_KIND_MASK,
+  type TraceScratch,
+  terrainTraceSegment,
+  traceHit,
+  traceLine,
+} from "./trace";
 import {
   AIR_CRASH,
   AIR_LANDED,
@@ -735,6 +750,12 @@ export interface SimState {
    */
   readonly cockpitAim: CockpitAim;
   /**
+   * The terrain trace's carried scratch (trace.ts TraceScratch): the wall
+   * pick's running best distance retail keeps between calls. Every line test of
+   * the sim goes through it, in tick order. Hashed.
+   */
+  readonly trace: TraceScratch;
+  /**
    * Each unit's shooter's muzzle index, the original's +0x23 (0 or 1), by
    * entity id: 0 from `cact_shooter_init` at the spawn, flipped by an
    * ALTERNATE shooter as each round comes due (0x0044e673). The Sky Captain's
@@ -842,6 +863,14 @@ export interface SimState {
    * push (fcop-fidelity.md P4). Hashed.
    */
   readonly avatarShape: Int16Array;
+  /**
+   * Each player's footprint corners where the last ground push left them
+   * (`player_ride::corners`, player * 12 + corner * 3: the engine's x, y, z in
+   * world units of the plates' frame), and whether they are set (a reset leaves
+   * them unset: the next push traces no motion). Hashed.
+   */
+  readonly avatarCorners: Int32Array;
+  readonly avatarCornersSet: Uint8Array;
 
   /**
    * SimOptions.extraWeapons, normalized (config, like the loadouts). Everything
@@ -954,6 +983,7 @@ export function spawnAvatar(state: SimState, player: number): number {
   state.avatarImpulse[player * 2] = 0;
   state.avatarImpulse[player * 2 + 1] = 0;
   state.avatarSnap[player] = 0;
+  state.avatarCornersSet[player] = 0;
   state.avatarSinking[player] = 0;
   state.rivalHit[player] = 0;
   return id;
@@ -1339,6 +1369,7 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     gunSearch: new Int32Array(MAX_ENTITIES * DREADNOUGHT_GUNS),
     route: createRouteCursors(map),
     cockpitAim: createCockpitAim(),
+    trace: newTraceScratch(),
     shooterMuzzle: new Uint8Array(MAX_ENTITIES),
     hullWalk: map.bases.map((b) => {
       const w = b.juggernaut.walk;
@@ -1381,6 +1412,8 @@ export function createSim(map: MapData, seed: number, options?: SimOptions): Sim
     avatarImpulse: new Int32Array(MAX_PLAYERS * 2),
     avatarSnap: new Uint8Array(MAX_PLAYERS),
     avatarShape: new Int16Array(MAX_PLAYERS * SHAPE_STATE_WORDS),
+    avatarCorners: new Int32Array(MAX_PLAYERS * 12),
+    avatarCornersSet: new Uint8Array(MAX_PLAYERS),
     extraWeapons,
     keptRound: new Int32Array(MAX_PLAYERS).fill(-1),
     shield: createShieldState(),
@@ -2022,12 +2055,17 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     // other edge), 1 across y -- becomes the snap state, and a push of
     // WALL_PUSH along its normal, away from it, the impulse the next tick
     // spends; each kind once. Both in one tick: the y wall's kind is left.
+    // On an arena with the original's plates no wall stops the move: the
+    // ground push after it traces the footprint and pushes (groundPush,
+    // fcop-fidelity.md T1). The lattice's stopped move stands in on a map
+    // without them.
+    const lattice = map.trace === null;
     const stepX = vx * TICK_DT;
     let wallPushX = 0;
     let wallPushY = 0;
     if (stepX !== 0) {
       const nx = Math.min(Math.max(x + stepX, 0), extent);
-      const wallX = crossesWallX(map, x, nx, y, wallLayer);
+      const wallX = lattice && crossesWallX(map, x, nx, y, wallLayer);
       if (wallX) {
         wallPushX = stepX > 0 ? -WALL_PUSH : WALL_PUSH;
         state.avatarImpulse[k2] += wallPushX;
@@ -2042,7 +2080,7 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     const stepY = vy * TICK_DT;
     if (stepY !== 0) {
       const ny = Math.min(Math.max(y + stepY, 0), extent);
-      const wallY = crossesWallY(map, x, y, ny, wallLayer);
+      const wallY = lattice && crossesWallY(map, x, y, ny, wallLayer);
       if (wallY) {
         wallPushY = stepY > 0 ? -WALL_PUSH : WALL_PUSH;
         state.avatarImpulse[k2 + 1] += wallPushY;
@@ -2190,7 +2228,21 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
         // through this tick stops the rise and halves the horizontal velocity.
         if (
           vz > WALKER_RISE_GATE * X1_STEP_SPEED &&
-          deckOverhead(map, x, y, h0 + WALKER_HEAD_HEIGHT, h + WALKER_HEAD_HEIGHT)
+          (lattice
+            ? deckOverhead(map, x, y, h0 + WALKER_HEAD_HEIGHT, h + WALKER_HEAD_HEIGHT)
+            : (traceLine(
+                map,
+                state.trace,
+                fromX,
+                fromY,
+                h0 + WALKER_HEAD_HEIGHT,
+                x,
+                y,
+                h + WALKER_HEAD_HEIGHT,
+                1,
+              ) &
+                TRACE_KIND_MASK) !==
+              0)
         ) {
           vz = 0;
           ent.velX[id] /= 2;
@@ -2211,6 +2263,16 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
     }
     ent.height[id] = h;
     ent.timerB[id] = vz;
+    // The ground push (`player_ground_push` 0x00443490, at the end of either
+    // tick: 0x00444b6a, 0x00442dc0): the footprint's corners traced from where
+    // they were and along its edges, each wall kind met once a push.
+    if (!lattice) {
+      groundPush(state, p, id);
+      wallPushX = groundOut.x;
+      wallPushY = groundOut.y;
+      state.avatarImpulse[k2] += wallPushX;
+      state.avatarImpulse[k2 + 1] += wallPushY;
+    }
     // The actors' contacts (`player_push_contacts` 0x00442e70, before the wall
     // push in each step of either tick: 0x00444b6b, 0x00442dc1): what met the
     // mech's own contact model pushes it into the same impulse, a touch alone
@@ -2305,6 +2367,10 @@ function systemAvatarMovement(state: SimState, inputs: TickInputs): void {
       (h > ride + GROUND_EPS ? ANIM_AIRBORNE : 0) |
       (ent.timerA[id] > 0 ? ANIM_TRANSFORMING : 0);
 
+    // The partner's tick, then the weapons, as the original's mech tick runs
+    // them (`player_tick` 0x00447059, 0x00447080): the cockpit's aim and the
+    // guns' recoil this tick, so a shot leaves from where the guns now stand.
+    partnerTick(state, p);
     // Weapons (sub-step of the avatar system): cooldowns, fire, ammo stub. They
     // fire through a transformation (fcop-fidelity.md P3).
     avatarWeapons(state, p, id, bits, pressed, held);
@@ -2888,6 +2954,133 @@ function inWater(state: SimState, id: number, x: number, y: number): boolean {
   return state.ent.height[id] - waterHeightAt(map, x, y) < SURFACE_REACH;
 }
 
+/** groundPush's answer: the push it adds, the impulse's units (sim x, sim y). */
+const groundOut = { x: 0, y: 0 };
+const groundCorners = new Int32Array(12);
+const groundHits = new Int32Array(24);
+const groundKinds = new Int32Array(8);
+const groundFrame = createFrame();
+const groundHit = new Int32Array(3);
+/** `PLAYER_WALL_PUSH`: a contact's push, each axis, a step. */
+const GROUND_PUSH = 0x24000;
+
+/**
+ * `player_ground_probe` (0x00443680) and `player_ground_push` (0x00443490) for
+ * player `p`'s X1 `id`, on an arena with the original's plates: its
+ * footprint -- the contact model's four corners (`player_transform_shape`
+ * 0x00441d5d: x the box centre's -, +, +, - its widened half, z the walked
+ * centre's +, +, -, - its lengthened half, all at its foot height) -- placed
+ * through its matrix (the facing; the heading's y and the roll are 0 here, as
+ * the sim's yaw-only mech has them) on its position; eight terrain traces with
+ * the floors off: each corner from where the last push left it, then the four
+ * edges in order. The corners are kept for the next push (0x004434bf, before
+ * the early exit). Walking the probes from the last to the first, each wall
+ * kind counts once: it becomes the snap state, and a push from the hit toward
+ * the footprint's centre, kept along the kind's own normal (kind 1 the
+ * engine's x, 2 its z, 3 and 4 the diagonals, each halved twice toward zero)
+ * and quantised to +-PLAYER_WALL_PUSH, goes into groundOut. The doubling with a
+ * contact is the caller's.
+ */
+function groundPush(state: SimState, p: number, id: number): void {
+  const ent = state.ent;
+  const t = state.map.trace;
+  groundOut.x = 0;
+  groundOut.y = 0;
+  if (t === null) return;
+  const b = p * SHAPE_STATE_WORDS;
+  const sh = state.avatarShape;
+  const cx = sh[b];
+  const walkZ = sh[b + 2];
+  const wideX = sh[b + 3];
+  const longZ = sh[b + 5];
+  const footY = sh[b + S_FOOT_Y];
+  yawFrame(groundFrame, ent.yaw[id]);
+  const f = groundFrame;
+  for (let i = 0; i < 4; i++) {
+    // Corners in winding order: x -, +, +, -; z +, +, -, - (raw, 1/512 m).
+    const mx = (cx + (i === 0 || i === 3 ? -wideX : wideX)) / 512;
+    const my = footY / 512;
+    const mz = (walkZ + (i < 2 ? longZ : -longZ)) / 512;
+    const wx = ent.posX[id] + mx * f.ax[0] + my * f.ay[0] + mz * f.az[0];
+    const wy = ent.posY[id] + mx * f.ax[1] + my * f.ay[1] + mz * f.az[1];
+    const wh = ent.height[id] + mx * f.ax[2] + my * f.ay[2] + mz * f.az[2];
+    groundCorners[i * 3] = Math.floor((wy - t.originY) * WU_PER_METRE);
+    groundCorners[i * 3 + 1] = Math.floor(wh * WU_PER_METRE);
+    groundCorners[i * 3 + 2] = Math.floor((wx - t.originX) * WU_PER_METRE);
+  }
+  const prev = state.avatarCorners;
+  const o = p * 12;
+  const set = state.avatarCornersSet[p] !== 0;
+  for (let i = 0; i < 4; i++) {
+    let kind = 0;
+    if (set) {
+      kind =
+        terrainTraceSegment(
+          t,
+          prev.subarray(o + i * 3, o + i * 3 + 3),
+          groundCorners.subarray(i * 3, i * 3 + 3),
+          groundHit,
+          0,
+          state.trace,
+        ) & TRACE_KIND_MASK;
+    }
+    groundKinds[i] = kind;
+    groundHits[i * 3] = groundHit[0];
+    groundHits[i * 3 + 2] = groundHit[2];
+  }
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) & 3;
+    const kind =
+      terrainTraceSegment(
+        t,
+        groundCorners.subarray(i * 3, i * 3 + 3),
+        groundCorners.subarray(j * 3, j * 3 + 3),
+        groundHit,
+        0,
+        state.trace,
+      ) & TRACE_KIND_MASK;
+    groundKinds[4 + i] = kind;
+    groundHits[(4 + i) * 3] = groundHit[0];
+    groundHits[(4 + i) * 3 + 2] = groundHit[2];
+  }
+  for (let k = 0; k < 12; k++) prev[o + k] = groundCorners[k];
+  state.avatarCornersSet[p] = 1;
+  // The centre, an arithmetic shift (0x00443531).
+  const centreX = (groundCorners[0] + groundCorners[3] + groundCorners[6] + groundCorners[9]) >> 2;
+  const centreZ = (groundCorners[2] + groundCorners[5] + groundCorners[8] + groundCorners[11]) >> 2;
+  let seen = 0;
+  let pushX = 0;
+  let pushZ = 0;
+  for (let probe = 7; probe >= 0; probe--) {
+    const kind = groundKinds[probe];
+    if (kind === 0) continue;
+    const bit = 1 << kind;
+    if ((seen & bit) !== 0) continue;
+    seen |= bit;
+    state.avatarSnap[p] = kind;
+    let px = (centreX - groundHits[probe * 3]) | 0;
+    let pz = (centreZ - groundHits[probe * 3 + 2]) | 0;
+    if (kind === 1) {
+      pz = 0;
+    } else if (kind === 2) {
+      px = 0;
+    } else if (kind === 3) {
+      const half = Math.trunc((px + pz) / 2);
+      px = Math.trunc(half / 2);
+      pz = px;
+    } else if (kind === 4) {
+      const half = Math.trunc((px - pz) / 2);
+      px = Math.trunc(half / 2);
+      pz = -Math.trunc(half / 2);
+    }
+    pushX += px < 0 ? -GROUND_PUSH : px > 0 ? GROUND_PUSH : 0;
+    pushZ += pz < 0 ? -GROUND_PUSH : pz > 0 ? GROUND_PUSH : 0;
+  }
+  // The engine's z is the sim's x, its x the sim's y.
+  groundOut.x = pushZ;
+  groundOut.y = pushX;
+}
+
 /**
  * Whether a deck present over (x, y) lies above `from` and at or below `to`:
  * the walker's head trace (`player_walk_tick` 0x004448a6, a segment 0x24c0 wu
@@ -3040,7 +3233,9 @@ function fireSlot(state: SimState, player: number, id: number, slot: number, w: 
   // empty answers script 13 and nothing fires; five left answers script 14 and
   // the round still goes out.
   if (allowance === LOW_AMMO_WARNING) pushEvent(state.events, EV_LOW_AMMO, id, player, slot);
-  if (!deliver(state, id, player, w, blk, slot, powered)) return;
+  // Which gun: the low bit of the allowance being spent (`player_fire_direct`
+  // 0x0045963c, `player_fire_launch` 0x00459119).
+  if (!deliver(state, id, player, w, blk, slot, powered, allowance & 1)) return;
   if (powered) state.powerAmmo[k] = allowance - 1;
   else setSlotAmmo(state, player, id, slot, allowance - 1);
   let left = state.burstLeft[k] - 1;
@@ -3090,14 +3285,25 @@ function deliver(
   blk: WeaponBlock,
   slot: number,
   powered: boolean,
+  gun: number,
 ): boolean {
   const ent = state.ent;
   const lock = state.lockTarget[player];
   const fx = ent.aimX[shooter];
   const fy = ent.aimY[shooter];
+  // The direct path (0x0a..0x0c, 0x0e) fires from its own gun block; every
+  // other kind is launched from the gun block the bit names, and a launch from
+  // the Heavy slot kicks that gun back (`player_fire_launch` 0x00459158,
+  // 0x00459179).
+  if (w.delivery !== "hitscan" && w.delivery !== "flame") {
+    fireFrom(state, shooter, player, gun);
+    if (slot === 1 && isPartnered(state, shooter, player)) {
+      state.cockpitAim.recoil[player * 2 + gun] = X1_RECOIL_START;
+    }
+  }
   switch (w.delivery) {
     case "hitscan":
-      directShot(state, shooter, player, w, blk, slot, lock, powered);
+      directShot(state, shooter, player, w, blk, slot, lock, powered, gun);
       return true;
     case "flame":
       // The attached sustain (sustain.ts flameFire): its trail's nodes hurt.
@@ -3106,7 +3312,7 @@ function deliver(
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
       return true;
     case "beam":
-      beamShot(state, shooter, player, w, blk, slot, lock, powered);
+      beamShot(state, shooter, player, w, blk, slot, lock, powered, gun);
       return true;
     case "shockwave": {
       pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
@@ -3140,9 +3346,9 @@ function deliver(
       return true;
     }
     case "arced": {
-      const x = ent.posX[shooter] + fx * MUZZLE_OFFSET;
-      const y = ent.posY[shooter] + fy * MUZZLE_OFFSET;
-      const h = ent.height[shooter] + MUZZLE_HEIGHT;
+      const x = shotFrom.x;
+      const y = shotFrom.y;
+      const h = shotFrom.h;
       let tx: number;
       let ty: number;
       let th: number;
@@ -3180,7 +3386,7 @@ function deliver(
       let dx = fx;
       let dy = fy;
       if (blk.kind === KIND_MISSILE_LEAD && lock >= 0) {
-        if (leadAim(state, shooter, lock, blk.speed)) {
+        if (leadAimFrom(state, shotFrom.x, shotFrom.y, lock, blk.speed)) {
           dx = leadScratch.x;
           dy = leadScratch.y;
         }
@@ -3199,7 +3405,17 @@ function deliver(
           ux = dx * c - dy * s;
           uy = dx * s + dy * c;
         }
-        const id = spawnStraight(state, shooter, ux, uy, homing ? lock : -1, lock);
+        const id = spawnStraightAt(
+          state,
+          ent.team[shooter],
+          shotFrom.x,
+          shotFrom.y,
+          shotFrom.h,
+          ux,
+          uy,
+          homing ? lock : -1,
+          lock,
+        );
         if (id < 0) break;
         const flags = (homing ? ROUND_HOMING : 0) | ROUND_RIVAL;
         armRound(state, id, shooter, player, w.projKind, blk, flags, lock);
@@ -3213,16 +3429,59 @@ function deliver(
   }
 }
 
+/** An X1's gun muzzle or a shooter's stand-in, metres: what fireFrom wrote last. */
+const shotFrom = { x: 0, y: 0, h: 0 };
+
+/** Is `shooter` player `player`'s own X1, whose partner places its guns? */
+function isPartnered(state: SimState, shooter: number, player: number): boolean {
+  return (
+    player >= 0 &&
+    player < state.avatarId.length &&
+    player !== state.wardenPlayer &&
+    state.avatarId[player] === shooter &&
+    state.ent.archetype[shooter] === ARCHETYPE.AVATAR
+  );
+}
+
+/**
+ * Where a shot of `shooter`'s leaves, into shotFrom: an X1's gun `gun`, the gun
+ * model's point 0 on its block (orient.ts x1Muzzle; fcop-fidelity.md T1); any
+ * other avatar MUZZLE_OFFSET along its facing and MUZZLE_HEIGHT up.
+ */
+function fireFrom(state: SimState, shooter: number, player: number, gun: number): void {
+  const ent = state.ent;
+  if (isPartnered(state, shooter, player)) {
+    x1Muzzle(state, player, shooter, gun);
+    shotFrom.x = muzzleAt.x;
+    shotFrom.y = muzzleAt.y;
+    shotFrom.h = muzzleAt.h;
+    return;
+  }
+  shotFrom.x = ent.posX[shooter] + ent.aimX[shooter] * MUZZLE_OFFSET;
+  shotFrom.y = ent.posY[shooter] + ent.aimY[shooter] * MUZZLE_OFFSET;
+  shotFrom.h = ent.height[shooter] + MUZZLE_HEIGHT;
+}
+
 const KIND_MISSILE_LEAD = 2;
 const KIND_MISSILE_SPLIT = 0x12;
 const KIND_ARCED_CLUSTER = 0x14;
 
 /**
  * The direct path, `player_fire_direct` (retail 0x004595e0; fcop-fidelity.md
- * W2): a line from the muzzle to the LOCK, or `range` ahead along the facing with
- * none. A wall on the line stops it (the original's terrain trace). It damages
- * only the lock: with no lock the line does nothing — except a powered block with
- * a blast, which area-damages where the line ends (at the lock when there is one).
+ * W2, T1). The line starts at the gun block's point 0 (fireFrom; block 0 for the
+ * Electric Gun) and ends:
+ * - with no lock, `range` ahead along the heading, at the muzzle's height (the
+ *   heading's y is 0 on both forms, 0x0044448e, `player_hover` 256);
+ * - at the lock's reference point for the Gatling Laser (0x00459727);
+ * - else on a sphere about it, on the muzzle's side (0x00459758..0x00459835):
+ *   two PRNG draws pick the direction, the radius the block's +0x0e in world
+ *   units, or the target's `half_h` halved where that is 0 (0x00459747) -- the
+ *   Electric Gun's its link record's +0x34 << 4 (bank 1 record 50: 204, so
+ *   3264 wu; its point byte +0x1e is 0xff, no model point).
+ * The terrain trace with floors (0x004598c5) stops it at the first plate; a
+ * stopped line damages nothing. It damages only the lock: with no lock it does
+ * nothing -- except a powered block with a blast, which area-damages at the lock
+ * when there is one, else where the line ends.
  */
 function directShot(
   state: SimState,
@@ -3233,36 +3492,59 @@ function directShot(
   slot: number,
   lock: number,
   powered: boolean,
+  gun: number,
 ): void {
   const ent = state.ent;
-  const ox = ent.posX[shooter];
-  const oy = ent.posY[shooter];
+  const electric = blk.kind === KIND_DIRECT_ELECTRIC;
+  fireFrom(state, shooter, player, electric ? 0 : gun);
+  const ox = shotFrom.x;
+  const oy = shotFrom.y;
+  const oh = shotFrom.h;
   let ex: number;
   let ey: number;
-  if (lock >= 0) {
-    ex = ent.posX[lock];
-    ey = ent.posY[lock];
-  } else {
+  let eh: number;
+  if (lock < 0) {
     ex = ox + ent.aimX[shooter] * blk.range;
     ey = oy + ent.aimY[shooter] * blk.range;
+    eh = oh;
+  } else {
+    ex = ent.posX[lock];
+    ey = ent.posY[lock];
+    eh = ent.height[lock] + entityRefHeight(state, lock);
+    if (blk.kind !== KIND_DIRECT_LASER) {
+      let spread: number;
+      if (electric) {
+        spread = ELECTRIC_LINK_SCATTER << 4;
+      } else if (blk.rec.w0e !== 0) {
+        spread = blk.rec.w0e;
+      } else {
+        const half = bodyHalfH(state, lock);
+        spread =
+          Math.floor((Number.isNaN(half) ? entityRadius(state, lock) : half) * WU_PER_METRE) >> 1;
+      }
+      scatterEnd(state, ox, oy, oh, ex, ey, eh, spread);
+      ex = scatterAt.x;
+      ey = scatterAt.y;
+      eh = scatterAt.h;
+    }
+  }
+  const blocked = traceLine(state.map, state.trace, ox, oy, oh, ex, ey, eh, 1) !== 0;
+  if (blocked) {
+    ex = traceHit.x;
+    ey = traceHit.y;
+    eh = traceHit.h;
   }
   const dx = ex - ox;
   const dy = ey - oy;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  let reach = len;
-  let blocked = false;
-  const wallT = segmentBlockT(state.map, ox, oy, ex, ey);
-  if (wallT >= 0) {
-    blocked = true;
-    reach = wallT * len;
-  }
+  const dh = eh - oh;
+  const reach = Math.sqrt(dx * dx + dy * dy + dh * dh);
   pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, reach, powered));
   if (blocked) return;
   if (powered && blk.blast > 0 && w.delivery === "hitscan") {
     blastAt(
       state,
-      ex,
-      ey,
+      lock >= 0 ? ent.posX[lock] : ex,
+      lock >= 0 ? ent.posY[lock] : ey,
       ent.team[shooter],
       player,
       blk.damage,
@@ -3274,9 +3556,55 @@ function directShot(
     applyDamage(state, lock, blk.damage, player, true);
   }
   // 0x00459a6a: the Electric Gun's block B jumps on from the lock it reached.
-  if (powered && blk.kind === KIND_DIRECT_ELECTRIC && lock >= 0) {
+  if (powered && electric && lock >= 0) {
     electricArcs(state, shooter, player, w, blk, lock);
   }
+}
+
+/** The Gatling Laser's kind byte (0x0c): its line ends on the lock's reference point. */
+const KIND_DIRECT_LASER = 0x0c;
+/** The Electric Gun's link record's far-end scatter (bank 1 record 50, +0x34). */
+const ELECTRIC_LINK_SCATTER = 204;
+
+/** Where scatterEnd put the line's end, metres. */
+const scatterAt = { x: 0, y: 0, h: 0 };
+
+/**
+ * The scatter of `player_fire_direct` (0x00459758..0x00459835) about the
+ * target's reference point (tx, ty, th), `spread` world units: two 12-bit
+ * angles from the PRNG, their sines and cosines in 16.16 with three of the four
+ * quartered (`sin_b` whole), the offset `((sin_a cos_b) >> 12, (cos_a cos_b) >>
+ * 12, sin_b)` scaled by the spread through `mul_16`, flipped to the muzzle's side
+ * (`vec3_dot(to_muzzle, off) < 0` takes the reference point less it). In the
+ * engine's axes: its x the sim's y, its z the sim's x.
+ */
+function scatterEnd(
+  state: SimState,
+  mx: number,
+  my: number,
+  mh: number,
+  tx: number,
+  ty: number,
+  th: number,
+  spread: number,
+): void {
+  const a = randU32(state) & 0xfff;
+  const b = randU32(state) & 0xfff;
+  const sinA = Math.round(sinUnits(a) * 65536) >> 2;
+  const cosA = Math.round(cosUnits(a) * 65536) >> 2;
+  const sinB = Math.round(sinUnits(b) * 65536);
+  const cosB = Math.round(cosUnits(b) * 65536) >> 2;
+  const offX = Math.floor((((sinA * cosB) >> 12) * spread) / 65536);
+  const offY = Math.floor((((cosA * cosB) >> 12) * spread) / 65536);
+  const offZ = Math.floor((sinB * spread) / 65536);
+  // to_muzzle, world units, the engine's (x, y, z).
+  const toX = Math.floor((my - ty) * WU_PER_METRE);
+  const toY = Math.floor((mh - th) * WU_PER_METRE);
+  const toZ = Math.floor((mx - tx) * WU_PER_METRE);
+  const sign = toX * offX + toY * offY + toZ * offZ < 0 ? -1 : 1;
+  scatterAt.x = tx + (sign * offZ) / WU_PER_METRE;
+  scatterAt.y = ty + (sign * offX) / WU_PER_METRE;
+  scatterAt.h = th + (sign * offY) / WU_PER_METRE;
 }
 
 /** The Electric Gun's kind byte (0x0b), the one `player_fire_direct` links. */
@@ -3349,14 +3677,16 @@ function beamShot(
   slot: number,
   lock: number,
   powered: boolean,
+  gun: number,
 ): void {
   const ent = state.ent;
   let ux = ent.aimX[shooter];
   let uz = ent.aimY[shooter];
   let uy = 0;
   if (lock >= 0) {
-    const mx = ent.posX[shooter] + ux * MUZZLE_OFFSET;
-    const my = ent.posY[shooter] + uz * MUZZLE_OFFSET;
+    // From the gun block's point 0 (`player_fire_launch` 0x00459543; deliver's fireFrom).
+    const mx = shotFrom.x;
+    const my = shotFrom.y;
     let dx = ent.posX[lock] - mx;
     let dz = ent.posY[lock] - my;
     const flat = Math.sqrt(dx * dx + dz * dz);
@@ -3364,8 +3694,7 @@ function beamShot(
       dx = leadScratch.x * flat;
       dz = leadScratch.y * flat;
     }
-    const dh =
-      ent.height[lock] + entityRefHeight(state, lock) - (ent.height[shooter] + MUZZLE_HEIGHT);
+    const dh = ent.height[lock] + entityRefHeight(state, lock) - shotFrom.h;
     const len = Math.sqrt(dx * dx + dz * dz + dh * dh);
     if (len > 1e-6) {
       ux = dx / len;
@@ -3373,7 +3702,7 @@ function beamShot(
       uy = dh / len;
     }
   }
-  beamFire(state, SUSTAIN_HOST, shooter, player, lock, blk.damage, powered, ux, uy, uz);
+  beamFire(state, SUSTAIN_HOST, shooter, player, lock, blk.damage, powered, ux, uy, uz, gun);
   pushEvent(state.events, EV_SHOT, shooter, slot, weaponShotPayload(w.id, 0, powered));
 }
 
@@ -3385,6 +3714,12 @@ const SUSTAIN_HOST: SustainHost = {
   hurt: (state, target, amount, player) => applyDamage(state, target, amount, player, true),
   radius: (state, id) => entityRadius(state, id),
   refHeight: (state, id) => entityRefHeight(state, id),
+  muzzle: (state, shooter, gun, at) => {
+    fireFrom(state, shooter, state.ent.ownerId[shooter], gun);
+    at.x = shotFrom.x;
+    at.y = shotFrom.y;
+    at.h = shotFrom.h;
+  },
 };
 
 /** blastAt options. */
@@ -3657,22 +3992,15 @@ function arcOutOfRange(state: SimState, id: number): boolean {
   return dx + dz - (smaller >> 1) > ARC_ROUND_RANGE_WU;
 }
 
-/** Scratch for leadAim (module scope: no allocation per shot). */
+/** Scratch for leadAimFrom (module scope: no allocation per shot). */
 const leadScratch = { x: 0, y: 0, d: 0 };
 
 /**
- * Intercept lead (`cact_discharge_lead`): the horizontal direction from the
- * shooter at which a round of `speed` meets `target` moving at its current
- * velocity. Writes leadScratch and answers true; false when there is no
- * intercept (the caller then fires straight at the target or along its facing).
- * The original's lead details (it passes the block's speed unshifted) were not
- * established (fcop-re/player-and-weapons.md §9.3); this is the plain solution.
+ * Intercept lead (`cact_discharge_lead`): the horizontal direction from (x, y)
+ * -- the shooter's muzzle -- at which a round of `speed` meets `target` moving at
+ * its current velocity. Writes leadScratch and answers true; false when there is
+ * no intercept (the caller then fires straight at the target or along its facing).
  */
-function leadAim(state: SimState, shooter: number, target: number, speed: number): boolean {
-  return leadAimFrom(state, state.ent.posX[shooter], state.ent.posY[shooter], target, speed);
-}
-
-/** leadAim from the point (x, y). */
 function leadAimFrom(
   state: SimState,
   x: number,
@@ -3735,9 +4063,10 @@ function spawnMine(
   const ent = state.ent;
   const id = spawn(ent, ARCHETYPE.PROJECTILE, ent.team[shooter]);
   if (id < 0) return false;
-  ent.posX[id] = ent.posX[shooter] + ent.aimX[shooter] * MUZZLE_OFFSET;
-  ent.posY[id] = ent.posY[shooter] + ent.aimY[shooter] * MUZZLE_OFFSET;
-  ent.height[id] = ent.height[shooter] + MUZZLE_HEIGHT;
+  // From the gun's muzzle (deliver's fireFrom).
+  ent.posX[id] = shotFrom.x;
+  ent.posY[id] = shotFrom.y;
+  ent.height[id] = shotFrom.h;
   ent.yaw[id] = ent.yaw[shooter];
   ent.hp[id] = 1;
   ent.mode[id] = kind;
@@ -3779,13 +4108,15 @@ export function hitscan(
   damage: number,
   shotSlot = -1,
   shotWeaponId = 0,
-  /** The line's start, metres: the shooter's position unless a muzzle is given. */
+  /** The line's start, metres: the shooter's reference point unless a muzzle is given. */
   fromX = Number.NaN,
   fromY = Number.NaN,
+  fromH = Number.NaN,
 ): void {
   const ent = state.ent;
   const ox = Number.isNaN(fromX) ? ent.posX[shooter] : fromX;
   const oy = Number.isNaN(fromY) ? ent.posY[shooter] : fromY;
+  const oh = Number.isNaN(fromH) ? ent.height[shooter] + entityRefHeight(state, shooter) : fromH;
   const team = ent.team[shooter];
   let bestT = range;
   let bestId = -1;
@@ -3806,14 +4137,16 @@ export function hitscan(
     }
   }
   if (shotSlot >= 0) {
-    // How far this shot actually travels. Render-only: it is computed from the
-    // map and the ray, writes nothing, and the damage decision below still runs
-    // through the untouched `segmentBlocked` call on its own short segment —
-    // so no arithmetic that feeds the hash changed.
+    // How far this shot travels, for its tracer: to the body it picked or its
+    // reach, short of the first plate the terrain trace meets on the way
+    // (`cact_discharge_instant` 0x0044e421: the wall is the point).
     let reach = bestId >= 0 ? bestT : range;
-    const wallT = segmentBlockT(state.map, ox, oy, ox + dx * range, oy + dy * range);
-    if (wallT >= 0) {
-      const wallDist = wallT * range;
+    if (
+      traceLine(state.map, state.trace, ox, oy, oh, ox + dx * range, oy + dy * range, oh, 1) !== 0
+    ) {
+      const hx = traceHit.x - ox;
+      const hy = traceHit.y - oy;
+      const wallDist = Math.sqrt(hx * hx + hy * hy);
       if (wallDist < reach) reach = wallDist;
     }
     pushEvent(
@@ -3832,7 +4165,8 @@ export function hitscan(
     // Captain's gun too: it fires and draws its tracer anyway, but sends
     // damage only along a clear terrain line (`discharge.c` 0x0044dbed). Its
     // v24 pierce at ground units went in SIM_VERSION 54.
-    if (segmentBlocked(state.map, ox, oy, ox + dx * bestT, oy + dy * bestT)) {
+    const th = ent.height[bestId] + entityRefHeight(state, bestId);
+    if (traceLine(state.map, state.trace, ox, oy, oh, ent.posX[bestId], ent.posY[bestId], th, 1)) {
       return;
     }
     const arch = ent.archetype[shooter];
@@ -4288,8 +4622,12 @@ function shooterTurret(state: SimState, id: number, w: MapWeapon): void {
   const my = gunScratch.my;
   const mh = gunScratch.mh;
   if (!aimFrom(state, mx, my, target, w)) return;
-  const blocked = segmentBlocked(state.map, mx, my, ent.posX[target], ent.posY[target]);
-  const dh = ent.height[target] + entityRefHeight(state, target) - mh;
+  // `discharge_launch`'s clear line: the terrain trace with floors from the
+  // muzzle to the target's reference point (0x0044de23; fcop-fidelity.md T1).
+  const th = ent.height[target] + entityRefHeight(state, target);
+  const blocked =
+    traceLine(state.map, state.trace, mx, my, mh, ent.posX[target], ent.posY[target], th, 1) !== 0;
+  const dh = th - mh;
   const facing = arcDot(cosLUT(ent.yaw[id]), sinLUT(ent.yaw[id]), ent.pitch[id], dh);
   if (blocked || (w.arcCos > -1 && facing < w.arcCos)) {
     // Put back: due again once the clock has run the retry delay back up.
@@ -4502,7 +4840,17 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
     // 0x0044d98d, `discharge_launch`'s trace from the muzzle).
     if (!aimFrom(state, gunScratch.mx, gunScratch.my, target, w)) return;
     if (
-      segmentBlocked(state.map, gunScratch.mx, gunScratch.my, ent.posX[target], ent.posY[target])
+      traceLine(
+        state.map,
+        state.trace,
+        gunScratch.mx,
+        gunScratch.my,
+        gunScratch.mh,
+        ent.posX[target],
+        ent.posY[target],
+        ent.height[target] + entityRefHeight(state, target),
+        1,
+      ) !== 0
     ) {
       ent.aimY[id] = PHASE_INSIDE;
       ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
@@ -4525,7 +4873,20 @@ function shooterUnit(state: SimState, id: number, w: MapWeapon): void {
     return;
   }
   if (!aimRound(state, id, target, w)) return;
-  if (segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[target], ent.posY[target])) {
+  // From where fireRound's round leaves (spawnStraight's stand-in muzzle).
+  if (
+    traceLine(
+      state.map,
+      state.trace,
+      ent.posX[id] + aimScratch.x * MUZZLE_OFFSET,
+      ent.posY[id] + aimScratch.y * MUZZLE_OFFSET,
+      ent.height[id] + MUZZLE_HEIGHT,
+      ent.posX[target],
+      ent.posY[target],
+      ent.height[target] + entityRefHeight(state, target),
+      1,
+    ) !== 0
+  ) {
     ent.aimY[id] = PHASE_INSIDE;
     ent.cooldownA[id] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
     return;
@@ -4795,17 +5156,23 @@ function shooterDreadnought(state: SimState, id: number, w: MapWeapon): void {
     if (target < 0) continue; // the round waits, the clock stopped
     placeGun(state, id, m, frame, state.gunYaw[k]);
     if (!aimFrom(state, gunScratch.mx, gunScratch.my, target, w)) continue;
-    const blocked = segmentBlocked(
-      state.map,
-      gunScratch.mx,
-      gunScratch.my,
-      ent.posX[target],
-      ent.posY[target],
-    );
+    const th = ent.height[target] + entityRefHeight(state, target);
+    const blocked =
+      traceLine(
+        state.map,
+        state.trace,
+        gunScratch.mx,
+        gunScratch.my,
+        gunScratch.mh,
+        ent.posX[target],
+        ent.posY[target],
+        th,
+        1,
+      ) !== 0;
     // Its gun never pitches on its mount (no mount sets CACT_MOUNT_AIM_PITCH;
     // I6), so the arc is tested against the barrel's row 2 as the hull's matrix
     // carries it: level on level ground, tilted with the hull on a slope.
-    const dh = ent.height[target] + entityRefHeight(state, target) - gunScratch.mh;
+    const dh = th - gunScratch.mh;
     if (blocked || arcDotRow(gunScratch.fx, gunScratch.fy, gunScratch.fh, dh) < w.arcCos) {
       state.gunPhase[k] = PHASE_INSIDE;
       state.gunClock[k] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
@@ -4911,7 +5278,21 @@ function nearestEnemyAvatar(state: SimState, id: number, range: number): number 
     const dy = ent.posY[a] - ent.posY[id];
     const d2 = dx * dx + dy * dy;
     if (d2 < bestD2) {
-      if (segmentBlocked(state.map, ent.posX[id], ent.posY[id], ent.posX[a], ent.posY[a])) {
+      // `cact_find_target`'s line (0x0043bd74): the terrain trace between the
+      // two reference points, floors off.
+      if (
+        traceLine(
+          state.map,
+          state.trace,
+          ent.posX[id],
+          ent.posY[id],
+          ent.height[id] + entityRefHeight(state, id),
+          ent.posX[a],
+          ent.posY[a],
+          ent.height[a] + entityRefHeight(state, a),
+          0,
+        ) !== 0
+      ) {
         continue; // wall between us — not a valid target
       }
       bestD2 = d2;
@@ -5313,9 +5694,10 @@ function spawnGuided(
   const ent = state.ent;
   const fx = ent.aimX[shooter];
   const fy = ent.aimY[shooter];
-  const x = ent.posX[shooter] + fx * MUZZLE_OFFSET;
-  const y = ent.posY[shooter] + fy * MUZZLE_OFFSET;
-  const h = ent.height[shooter] + MUZZLE_HEIGHT;
+  // From the gun's muzzle (deliver's fireFrom).
+  const x = shotFrom.x;
+  const y = shotFrom.y;
+  const h = shotFrom.h;
   let dx = fx;
   let dy = fy;
   let dh = 0;
@@ -5594,11 +5976,12 @@ function guidedTick(state: SimState, id: number): void {
       }
     }
   }
-  const wallT = segmentBlockT(map, px, py, x, y);
-  if (wallT >= 0) {
-    x = px + (x - px) * wallT;
-    y = py + (y - py) * wallT;
-    h = ph + (h - ph) * wallT;
+  // The swept trace from where it was, floors off (missile.c 0x00423936): on a
+  // wall it stands at the hit point, expired.
+  if (traceLine(map, state.trace, px, py, ph, x, y, h, 0) !== 0) {
+    x = traceHit.x;
+    y = traceHit.y;
+    h = traceHit.h;
     expiring = true;
   } else {
     const extent = worldExtent(map);
@@ -5668,9 +6051,10 @@ function spawnBounce(
   const ent = state.ent;
   const fx = ent.aimX[shooter];
   const fy = ent.aimY[shooter];
-  const x = ent.posX[shooter] + fx * MUZZLE_OFFSET;
-  const y = ent.posY[shooter] + fy * MUZZLE_OFFSET;
-  const h = ent.height[shooter] + MUZZLE_HEIGHT;
+  // From the gun's muzzle (deliver's fireFrom).
+  const x = shotFrom.x;
+  const y = shotFrom.y;
+  const h = shotFrom.h;
   let tx: number;
   let ty: number;
   let th: number;
@@ -5745,19 +6129,23 @@ function bounceTick(state: SimState, id: number, radius = GRENADE_RADIUS): void 
   const scale = (GRENADE_MOVE_SCALE * WEAPON_UNITS_PER_TICK) >> 2;
   const px = ent.posX[id];
   const py = ent.posY[id];
+  const ph = ent.height[id];
   let x = px + (((vx >> 2) * scale) >> 12) / WU_PER_METRE;
   let y = py + (((vy >> 2) * scale) >> 12) / WU_PER_METRE;
-  const h = ent.height[id] + (((vh >> 2) * scale) >> 12) / WU_PER_METRE;
-  const wallT = segmentBlockT(map, px, py, x, y);
-  if (wallT >= 0) {
-    x = px + (x - px) * wallT;
-    y = py + (y - py) * wallT;
+  let h = ph + (((vh >> 2) * scale) >> 12) / WU_PER_METRE;
+  // The trace from `last` with the floors off (`cact_bounce_advance`
+  // 0x00424722): on a wall it stands at the hit point, expired.
+  const walled = traceLine(map, state.trace, px, py, ph, x, y, h, 0) !== 0;
+  if (walled) {
+    x = traceHit.x;
+    y = traceHit.y;
+    h = traceHit.h;
   }
   ent.posX[id] = x;
   ent.posY[id] = y;
   ent.height[id] = h;
   const extent = worldExtent(map);
-  if (wallT >= 0 || x <= 0 || x >= extent || y <= 0 || y >= extent) {
+  if (walled || x <= 0 || x >= extent || y <= 0 || y >= extent) {
     explode(state, id);
     return;
   }
@@ -5930,22 +6318,25 @@ function systemProjectiles(state: SimState): void {
 
     const px = ent.posX[id];
     const py = ent.posY[id];
+    const ph = ent.height[id];
     const x = px + vx * TICK_DT;
     const y = py + vy * TICK_DT;
-    // A wall stops the shell on the near side: don't advance into it, so the
-    // explosion (and its blast centre) stays on the shooter's side.
-    const walled = segmentBlocked(map, px, py, x, y);
-    if (!walled) {
-      ent.posX[id] = x;
-      ent.posY[id] = y;
-    }
     let expired = !arc && ent.timerA[id] <= 0;
+    let walled = false;
     if (arc) {
-      // Semi-implicit Euler under the round's own gravity (its record's range
-      // field): velocity first, then the position.
+      // `cact_round_advance` (type7.c, 0x00423e40): the fall into the vertical
+      // speed (semi-implicit, under the round's own gravity, its record's range
+      // field), then the step, traced with floors from where it was
+      // (0x00423ec8): a plate on the way leaves the shell where it was, expired.
       const before = ent.timerB[id];
       ent.timerB[id] -= ent.aimX[id] * TICK_DT;
-      ent.height[id] += ent.timerB[id] * TICK_DT;
+      const h = ph + ent.timerB[id] * TICK_DT;
+      walled = traceLine(map, state.trace, px, py, ph, x, y, h, 1) !== 0;
+      if (!walled) {
+        ent.posX[id] = x;
+        ent.posY[id] = y;
+        ent.height[id] = h;
+      }
       // The apex (0x00423e9c): the vertical speed was not negative and now is.
       // The shell bursts and flies on (cact_round_advance has nothing after
       // its burst loop, 0x0042406f).
@@ -5960,8 +6351,21 @@ function systemProjectiles(state: SimState): void {
         continue;
       }
     } else {
+      // A missile (`missile_advance`, missile.c): the step, then the swept
+      // trace from where it was with the floors off (0x00423936); on a wall it
+      // stands at the hit point, expired.
       const step = speed * TICK_DT;
-      ent.height[id] += ent.timerB[id] * step;
+      const h = ph + ent.timerB[id] * step;
+      walled = traceLine(map, state.trace, px, py, ph, x, y, h, 0) !== 0;
+      if (walled) {
+        ent.posX[id] = traceHit.x;
+        ent.posY[id] = traceHit.y;
+        ent.height[id] = traceHit.h;
+      } else {
+        ent.posX[id] = x;
+        ent.posY[id] = y;
+        ent.height[id] = h;
+      }
       const left = ent.cooldownB[id];
       if (left > 0) {
         if (left <= step) expired = true;
@@ -5970,12 +6374,14 @@ function systemProjectiles(state: SimState): void {
     }
     let boom = walled || expired;
     if (x <= 0 || x >= extent || y <= 0 || y >= extent) boom = true;
-    // Only a lobbed shell meets the ground. A straight round flies the line it was
-    // aimed along and is stopped by the wall lattice (Metropolis' cover model) or
-    // its range: units and turrets stand on decks and road casts the base
-    // heightfield does not describe, and a round born under that surface used to
-    // die on its first step.
-    if (!boom && arc && sampleHeight(map, ent.posX[id], ent.posY[id]) >= ent.height[id]) {
+    // A lobbed shell on a map with no plates meets the ground lattice's
+    // heightfield (traceLine's stand-in has no floors).
+    if (
+      !boom &&
+      arc &&
+      map.trace === null &&
+      sampleHeight(map, ent.posX[id], ent.posY[id]) >= ent.height[id]
+    ) {
       boom = true;
     }
     let struck = -1;
@@ -6897,8 +7303,7 @@ export function step(state: SimState, inputs: TickInputs): void {
     // this tick's, and a carried rider is where its lift is before anything
     // else reads its height.
     systemLifts(state);
-    // The cockpit's aim after the mech has moved and ridden (the partner's
-    // tick ends the mech's own, 0x00447059).
+    // The partners the mechs' own ticks did not run (no live X1): back at rest.
     systemCockpitAim(state);
     systemQueues(state);
     // The Warden slots in directly after the human avatars: it IS the other
@@ -7270,6 +7675,16 @@ export function hash(state: SimState): number {
   for (let p = 0; p < MAX_PLAYERS; p++) {
     h = fnv1aU32(h, (aim.yaw[p] & 0xffff) | (aim.pitch[p] << 16));
   }
+  // Appended at SIM_VERSION 117: the guns' recoil countdowns and the terrain
+  // trace's carried pick.
+  for (let k = 0; k < aim.recoil.length; k++) {
+    h = fnv1aU32(h, aim.recoil[k] & 0xffff);
+  }
+  h = fnv1aU32(h, state.trace.pickBest >>> 0);
+  for (let k = 0; k < state.avatarCorners.length; k++) {
+    h = fnv1aU32(h, state.avatarCorners[k] >>> 0);
+  }
+  for (let p = 0; p < MAX_PLAYERS; p++) h = fnv1aU32(h, state.avatarCornersSet[p]);
   // Appended at SIM_VERSION 116: every live aircraft's muzzle index and the
   // Sky Captain's three (the original's +0x23).
   for (let id = 0; id < ent.high; id++) {

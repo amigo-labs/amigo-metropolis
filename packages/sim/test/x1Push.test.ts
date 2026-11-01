@@ -82,16 +82,17 @@ describe("the mech's own contact model", () => {
     const state = arena();
     // Legs frame 0: centre (0, 189, 16), half (132, 189, 164). The band at
     // progress 0: A 0x126, B 0x19, so the box spans 0x32..0x24c (0.098..1.148
-    // m); +0x44 is A, +0x46 the horizontal radius sqrt(132^2 + 164^2) = 210.
-    expect(shapeOf(state, 0)).toEqual([0, 319, 16, 132, 269, 164, 294, 210]);
+    // m); +0x44 is A, +0x46 the horizontal radius sqrt(132^2 + 164^2) = 210;
+    // the footprint's height 0xae (0x00441d48, the ground push's corners).
+    expect(shapeOf(state, 0)).toEqual([0, 319, 16, 132, 269, 164, 294, 210, 0xae]);
   });
 
   it("widens, lengthens and walks forward at the hover's full progress", () => {
     const state = arena();
     shapeTransform(state, 0, 0, X1_RAMP_FULL);
     // Half x by a quarter, centre z by a half depth, half z doubled; the band
-    // 0x73 with no half-span (0..0.449 m).
-    expect(shapeOf(state, 0)).toEqual([0, 115, 180, 165, 115, 328, 115, 366]);
+    // 0x73 with no half-span (0..0.449 m); the footprint's height down to 0x14.
+    expect(shapeOf(state, 0)).toEqual([0, 115, 180, 165, 115, 328, 115, 366, 0x14]);
   });
 
   it("is lowered by the crouch's bounds pair and put back", () => {
@@ -100,7 +101,7 @@ describe("the mech's own contact model", () => {
     // 0x126 - 0x5a +- 0x19: the top 408 (0.797 m), the floor still 0x32.
     expect(shapeOf(state, 0).slice(0, 6)).toEqual([0, 229, 16, 132, 179, 164]);
     shapeBounds(state, 0, false);
-    expect(shapeOf(state, 0)).toEqual([0, 319, 16, 132, 269, 164, 294, 210]);
+    expect(shapeOf(state, 0)).toEqual([0, 319, 16, 132, 269, 164, 294, 210, 0xae]);
   });
 });
 

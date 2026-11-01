@@ -846,6 +846,8 @@ describe("base intrusion alerts", () => {
     for (let t = 1; t <= TRIGGER_REARM_TICKS + 5 && again < 0; t++) {
       ent.posX[foe] = vol.x;
       ent.posY[foe] = vol.y;
+      // The base's guns fire at it the whole while; it is the alert under test.
+      ent.hp[foe] = 1e6;
       step(state, idle);
       if (countEvents(state, EV_ALARM) > 0) again = t;
     }

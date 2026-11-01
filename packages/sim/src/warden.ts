@@ -87,7 +87,6 @@ import {
   WEAPON_UNITS_PER_TICK,
   wardenLevel,
 } from "./balance";
-import { segmentBlocked } from "./collision";
 import {
   CAPTAIN_ORDER_DREADNOUGHT,
   CAPTAIN_ORDER_FORTRESS,
@@ -110,6 +109,7 @@ import {
   claimOutpostSlot,
   downEntity,
   downed,
+  entityRefHeight,
   fireWardenMissile,
   gunScratch,
   hitscan,
@@ -120,6 +120,7 @@ import {
   TURRET_DEFENSE,
 } from "./sim";
 import { cosLUT, rand01, randInt, sinLUT, TAU } from "./simMath";
+import { traceLine } from "./trace";
 import {
   AIR_FLY,
   aircraftClimb,
@@ -1214,7 +1215,18 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
     // units until SIM_VERSION 54).
     const blocked =
       aimX * fx + aimY * fy < arcCos(k, level) ||
-      (k === 1 && segmentBlocked(state.map, mx, my, ent.posX[t], ent.posY[t]));
+      (k === 1 &&
+        traceLine(
+          state.map,
+          state.trace,
+          mx,
+          my,
+          Number.isNaN(mh) ? ent.height[id] : mh,
+          ent.posX[t],
+          ent.posY[t],
+          ent.height[t] + entityRefHeight(state, t),
+          1,
+        ) !== 0);
     if (blocked) {
       c.gunPhase[k] = PHASE_INSIDE;
       c.gunClock[k] -= Math.floor(rand01(state) * SHOOTER_RETRY_UNITS);
@@ -1233,6 +1245,7 @@ function captainWeapons(state: SimState, id: number, me: number, level: number):
         0,
         mx,
         my,
+        mh,
       );
     } else if (k === 1) {
       fireWardenMissile(state, id, t, aimX, aimY, mx, my, mh);

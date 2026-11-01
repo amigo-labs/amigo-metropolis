@@ -43,16 +43,15 @@
 // sixteenths, time in engine units (10 a sim tick).
 //
 // Metropolis' own, said where it is done: the body's horizontal half-extent
-// (`half_h`) is its hit radius (Metropolis carries `radius_68` only); terrain is
-// the wall lattice (`segmentBlockT`), not the floors; own team and rounds are
-// never hurt (no friendly fire); the trails and shells live in fixed pools.
+// (`half_h`) is its hit radius (Metropolis carries `radius_68` only); own team
+// and rounds are never hurt (no friendly fire); the trails and shells live in
+// fixed pools. Terrain is the original's trace with its floors (trace.ts,
+// fcop-fidelity.md T1).
 
 import { ARCHETYPE } from "./archetypes";
 import {
   BLAST_BAND_MARGIN,
   MAX_PLAYERS,
-  MUZZLE_HEIGHT,
-  MUZZLE_OFFSET,
   SHELL_BEAM_IMPACT_B,
   SHELL_FLAG_DOUBLE,
   SHELL_FLAG_NO_FLOOR,
@@ -77,10 +76,10 @@ import {
   WEAPON_UNITS_PER_TICK,
   WU_PER_METRE,
 } from "./balance";
-import { segmentBlockT } from "./collision";
 import { EV_EXPLOSION, pushEvent } from "./events";
 import { fnv1aU32 } from "./hash";
 import type { SimState } from "./sim";
+import { traceHit, traceLine } from "./trace";
 
 /** What the module asks of the sim (sim.ts holds the damage bookkeeping and the bodies' sizes). */
 export interface SustainHost {
@@ -90,6 +89,16 @@ export interface SustainHost {
   radius(state: SimState, id: number): number;
   /** How far a body's reference point stands above its height, metres. */
   refHeight(state: SimState, id: number): number;
+  /**
+   * Where `shooter`'s gun `gun` has its muzzle (an X1's: the gun model's point 0
+   * on its block, orient.ts x1Muzzle), metres, into `at`.
+   */
+  muzzle(
+    state: SimState,
+    shooter: number,
+    gun: number,
+    at: { x: number; y: number; h: number },
+  ): void;
 }
 
 export const TRAIL_FLAME = 1;
@@ -338,15 +347,29 @@ function shooterLive(state: SimState, slotPlayer: number, shooter: number): bool
   return shooter >= 0 && state.ent.alive[shooter] !== 0 && state.avatarId[slotPlayer] === shooter;
 }
 
-/** The terrain trace between two points, wu: the wall lattice's t, -1 for none. */
-function wallT(state: SimState, x0: number, z0: number, x1: number, z1: number): number {
-  return segmentBlockT(
-    state.map,
-    x0 / WU_PER_METRE,
-    z0 / WU_PER_METRE,
-    x1 / WU_PER_METRE,
-    z1 / WU_PER_METRE,
-  );
+/**
+ * The terrain trace with floors between two points, wu in this module's frame
+ * (x, height, y) -- `sustain_attached_sweep` 0x0044b3f4, `sustain_aimed_sweep`
+ * 0x0044b8d9 / 0x0044bda9 (fcop-fidelity.md T1). True when a plate stops it,
+ * the point in hitScratch.
+ */
+function traceStops(
+  state: SimState,
+  x0: number,
+  y0: number,
+  z0: number,
+  x1: number,
+  y1: number,
+  z1: number,
+): boolean {
+  const W = WU_PER_METRE;
+  if (traceLine(state.map, state.trace, x0 / W, z0 / W, y0 / W, x1 / W, z1 / W, y1 / W, 1) === 0) {
+    return false;
+  }
+  hitScratch[0] = Math.floor(traceHit.x * W);
+  hitScratch[1] = Math.floor(traceHit.h * W);
+  hitScratch[2] = Math.floor(traceHit.y * W);
+  return true;
 }
 
 // --- The trail slots ----------------------------------------------------------
@@ -382,12 +405,26 @@ function retire(state: SimState, slot: number): void {
   s.count[slot] = 0;
 }
 
-/** Writes the muzzle of `shooter` (MUZZLE_OFFSET along its facing, MUZZLE_HEIGHT up) into `out[o..o+2]`, wu. */
-function muzzle(state: SimState, shooter: number, out: Int32Array, o: number): void {
-  const ent = state.ent;
-  out[o] = wu(ent.posX[shooter] + ent.aimX[shooter] * MUZZLE_OFFSET);
-  out[o + 1] = wu(ent.height[shooter] + MUZZLE_HEIGHT);
-  out[o + 2] = wu(ent.posY[shooter] + ent.aimY[shooter] * MUZZLE_OFFSET);
+const muzzleScratch = { x: 0, y: 0, h: 0 };
+
+/**
+ * Writes the muzzle of `shooter`'s gun `gun` into `out[o..o+2]`, wu: the
+ * Flamethrower's the view's block 0 (`player_fire_direct` 0x00459b18), the
+ * Concussion Beam's the gun block its shot fired from (`player_fire_launch`
+ * 0x00459543), each its point 0 (host.muzzle).
+ */
+function muzzle(
+  state: SimState,
+  host: SustainHost,
+  shooter: number,
+  gun: number,
+  out: Int32Array,
+  o: number,
+): void {
+  host.muzzle(state, shooter, gun, muzzleScratch);
+  out[o] = wu(muzzleScratch.x);
+  out[o + 1] = wu(muzzleScratch.h);
+  out[o + 2] = wu(muzzleScratch.y);
 }
 
 /**
@@ -534,8 +571,8 @@ export function flameFire(
   s.countdown[slot] = SUSTAIN_ATTACHED_UNITS;
   s.damage[slot] = damage;
   s.count[slot] = 0;
-  muzzle(state, shooter, s.point, slot * 3);
-  muzzle(state, shooter, s.emit, slot * 3);
+  muzzle(state, host, shooter, 0, s.point, slot * 3);
+  muzzle(state, host, shooter, 0, s.emit, slot * 3);
   layNode(state, host, slot, s.point, slot * 3);
 }
 
@@ -557,6 +594,7 @@ export function beamFire(
   dx: number,
   dy: number,
   dz: number,
+  gun: number,
 ): void {
   const s = state.sustain;
   let slot = findLive(state, player, TRAIL_BEAM);
@@ -582,7 +620,7 @@ export function beamFire(
   s.velocity[slot * 3] = i16(Math.trunc(dx * speed));
   s.velocity[slot * 3 + 1] = i16(Math.trunc(dy * speed));
   s.velocity[slot * 3 + 2] = i16(Math.trunc(dz * speed));
-  muzzle(state, shooter, s.point, slot * 3);
+  muzzle(state, host, shooter, gun, s.point, slot * 3);
   layNode(state, host, slot, s.point, slot * 3);
 }
 
@@ -749,7 +787,7 @@ function trailTick(state: SimState, host: SustainHost, slot: number): void {
   const flame = s.kind[slot] === TRAIL_FLAME;
   const shooter = s.shooter[slot];
   if (flame && shooterLive(state, slotPlayer(slot), shooter))
-    muzzle(state, shooter, s.emit, slot * 3);
+    muzzle(state, host, shooter, 0, s.emit, slot * 3);
   const pts = flame ? s.emit : s.point;
   if ((s.flags[slot] & T_NO_HEAD) === 0) {
     const h = base * 3;
@@ -852,6 +890,7 @@ function flameSweep(state: SimState, host: SustainHost, slot: number): void {
   const sy = sr[1];
   const sz = sr[2];
   let px = s.point[slot * 3];
+  let py = s.point[slot * 3 + 1];
   let pz = s.point[slot * 3 + 2];
   for (let i = 0; i < n; i++) {
     const at = base + i;
@@ -868,13 +907,15 @@ function flameSweep(state: SimState, host: SustainHost, slot: number): void {
       }
     }
     const nx = s.nPos[at * 3];
+    const ny = s.nPos[at * 3 + 1];
     const nz = s.nPos[at * 3 + 2];
-    if (wallT(state, px, pz, nx, nz) >= 0) {
+    if (traceStops(state, px, py, pz, nx, ny, nz)) {
       // The impact (record 42/47, a particle emitter) hurts nothing.
       s.nEnd[at] = 1;
       return;
     }
     px = nx;
+    py = ny;
     pz = nz;
   }
 }
@@ -1004,15 +1045,11 @@ function beamSweep(state: SimState, host: SustainHost, slot: number, projBeam: n
   const pz = s.point[slot * 3 + 2];
   const expired = (s.flags[slot] & T_EXPIRED) !== 0;
   const spacing = trailOf(state, slot).rec.spacing;
-  // The trace: the wall lattice's t along the segment, the hit by lerp.
+  // The trace with floors from the point to the oldest node, its hit in hitScratch.
   const ex = s.nPos[end * 3];
   const ey = s.nPos[end * 3 + 1];
   const ez = s.nPos[end * 3 + 2];
-  const t = wallT(state, px, pz, ex, ez);
-  if (t >= 0) {
-    hitScratch[0] = Math.floor(px + (ex - px) * t);
-    hitScratch[1] = Math.floor(py + (ey - py) * t);
-    hitScratch[2] = Math.floor(pz + (ez - pz) * t);
+  if (traceStops(state, px, py, pz, ex, ey, ez)) {
     if (n === 1) {
       if (expired) s.nEnd[head] = 1;
       else setNodePos(s, head, hitScratch);
