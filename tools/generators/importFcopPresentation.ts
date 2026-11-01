@@ -904,12 +904,12 @@ export type ReachBox = readonly [number, number, number, number, number];
 export const ARENA_PRESENTATION: Readonly<Record<string, ArenaPresentation>> = ${j(arenas)} as unknown as Readonly<Record<string, ArenaPresentation>>;
 `;
 
-// Formatted through biome's stdin, so --check compares what a write would leave.
-const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${OUT_TS}`], {
+// Formatted through oxfmt's stdin, so --check compares what a write would leave.
+const fmt = Bun.spawnSync(["bunx", "oxfmt", `--stdin-filepath=${OUT_TS}`], {
   cwd: ROOT,
   stdin: new TextEncoder().encode(ts),
 });
-if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
 emit(OUT_TS, new Uint8Array(fmt.stdout));
 console.log(
   `importFcopPresentation: ${FCOP_ARENAS.length} arenas, RE ${reCommit.slice(0, 8)} -> ${OUT_TS}`,

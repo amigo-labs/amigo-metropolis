@@ -783,12 +783,12 @@ function format(files: readonly ModelFile[], arenas: readonly ArenaRead[]): stri
 }
 
 /** The table as the formatter writes it, so a re-run and `--check` agree with lint. */
-function biomeFormat(text: string): string {
-  const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${OUT_TS}`], {
+function repoFormat(text: string): string {
+  const fmt = Bun.spawnSync(["bunx", "oxfmt", `--stdin-filepath=${OUT_TS}`], {
     cwd: REPO_ROOT,
     stdin: new TextEncoder().encode(text),
   });
-  if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+  if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
   return fmt.stdout.toString();
 }
 
@@ -859,7 +859,7 @@ async function main(): Promise<void> {
     u.skyCaptain.byLevel = u.skyCaptain.byLevel.map(resolve);
   }
 
-  const text = biomeFormat(format(files, reads));
+  const text = repoFormat(format(files, reads));
   let stale = 0;
   if (check) {
     const committed = existsSync(OUT_TS) ? readFileSync(OUT_TS, "utf8") : "";

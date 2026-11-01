@@ -11,7 +11,7 @@ owner decision; the multi-view renderer infrastructure remains for post-v1 2v2.)
 ## Stack
 
 - **TypeScript only.** No Rust/WASM in this repo. The sim is portable pure TS.
-- Bun (runtime, tests, workspaces), Biome (lint/format), TypeScript strict.
+- Bun (runtime, tests, workspaces), oxlint (lint) + oxfmt (format), TypeScript strict.
 - `packages/sim` — pure deterministic simulation. No DOM, no Three, no I/O.
 - `packages/client` — Three.js (WebGL2) renderer, input, interpolation, PWA shell.
 - `packages/server` — Cloudflare Worker + Durable Object lockstep relay.
@@ -22,7 +22,8 @@ owner decision; the multi-view renderer infrastructure remains for post-v1 2v2.)
 
 - `bun install` — install workspace deps
 - `bun test` — run all tests (sim tests must pass before any commit)
-- `bun run lint` — Biome check
+- `bun run lint` — oxlint + `oxfmt --check`
+- `bun run format` — oxfmt (write)
 - `bun run dev` — client dev server
 - `bun run replay:verify` — run golden replays against current sim (Phase 0+)
 

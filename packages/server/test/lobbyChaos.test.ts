@@ -89,6 +89,7 @@ class Harness {
    * armed alarm fires. Afterwards NOTHING may linger.
    */
   settle(): void {
+    // oxlint-disable-next-line unicorn/no-useless-spread -- disconnect() deletes from the set
     for (const c of [...this.conns]) this.disconnect(c);
     let guard = 0;
     while (this.logic.status !== "closed" && guard++ < 5) this.fireAlarm();

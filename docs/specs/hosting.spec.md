@@ -200,8 +200,8 @@ cannot be bypassed by a client skipping the pre-check; the client-visible
 - **Client:** TypeScript (strict), Three.js, existing sim core.
 - **Server:** Cloudflare Workers + Durable Objects, TypeScript, Wrangler.
 - **TURN:** Cloudflare Realtime TURN.
-- **Tooling:** Bun, Biome, `bun:test`. Atomic imperative-mood commits
-  (repo convention). Quality gates per phase: `biome check` + `tsc --noEmit` +
+- **Tooling:** Bun, oxlint + oxfmt, `bun:test`. Atomic imperative-mood commits
+  (repo convention). Quality gates per phase: `oxlint` + `oxfmt --check` + `tsc --noEmit` +
   `bun test` must be green.
 
 ## 8. Phase plan

@@ -8,7 +8,8 @@
   ],
   "scripts": {
     "test": "bun test",
-    "lint": "biome check .",
+    "lint": "oxlint --deny-warnings && oxfmt --check",
+    "format": "oxfmt",
     "typecheck": "bun run --filter '*' typecheck",
     "build": "bun run --filter @metropolis/client build",
     "build:worker": "bun run --filter @metropolis/server build",
@@ -49,8 +50,9 @@
     "balance:pa": "bun run tools/balance/src/paResolve.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.2",
     "@types/bun": "^1.3.14",
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.90.0",
     "typescript": "^6.0.3",
     "wrangler": "^4.108.0"
   }
