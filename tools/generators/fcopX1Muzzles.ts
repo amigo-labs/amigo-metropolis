@@ -19,11 +19,12 @@
 // FC:MIT's DecodedBone (RE tools/gfx/obj_mesh.py decode_bone, there in the
 // x-mirrored glTF frame, here unmirrored). It is checked against the data: the
 // posed cockpit's bounds must reproduce the object's own 3DBB box of every
-// frame (to POSE_TOLERANCE raw units), or the generator refuses. The RE's
-// transcription of the walk (`player_bone_chain`, src/game/actor/player_bone.c,
-// with `math_matrix_from_angles_b`'s Mz Mx My) does not: run over the same
-// records it misses frame 0's box by about 450 units in x, so its reading of
-// the angle order is the RE's to revisit (fcop-fidelity.md T1).
+// frame (to POSE_TOLERANCE raw units), or the generator refuses. It is the
+// retail order too: `math_matrix_from_angles_b` (0x0043f7f0), which the walk
+// (`player_bone_chain`, src/game/actor/player_bone.c) calls, builds Mx My Mz in
+// row vectors -- the same matrix. The RE forwarded it to the first builder's
+// Mz Mx My until fcop-reverse-engineering#89, which missed frame 0's box by
+// about 450 units in x (fcop-fidelity.md T1).
 //
 // Out, per cockpit frame f and gun g (0 = `model_178`, the fifth record; 1 =
 // `model_1c4`, the third): the muzzle in the cockpit's model space, world units
