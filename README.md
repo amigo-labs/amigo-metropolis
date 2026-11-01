@@ -19,7 +19,7 @@ bun run dev            # opens the original's front end (solo / HOST / JOIN).
                        #   ?sandbox=1 adds the test bench (F2) — spawn any unit,
                        #   turret or console and swap weapons live, on any arena
 bun run build          # production bundle (installable PWA, offline solo)
-bun run lint           # Biome
+bun run lint           # oxlint + oxfmt --check (bun run format to fix)
 bun run typecheck      # tsc per package
 bun run replay:verify  # re-simulate goldens against the current sim
 ```

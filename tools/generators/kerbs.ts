@@ -66,7 +66,7 @@ export function readGlbTriangles(path: string, dx: number, dz: number): Float64A
   if (view.getUint32(0, true) !== GLB_MAGIC) throw new Error(`${path}: not a .glb`);
   let json: GltfJson | undefined;
   let bin: Uint8Array | undefined;
-  for (let at = 12; at + 8 <= view.getUint32(8, true); ) {
+  for (let at = 12; at + 8 <= view.getUint32(8, true);) {
     const length = view.getUint32(at, true);
     const kind = view.getUint32(at + 4, true);
     const body = file.subarray(at + 8, at + 8 + length);

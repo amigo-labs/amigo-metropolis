@@ -50,7 +50,7 @@ if (await Bun.file(voicePath).exists()) {
   specs.push(join(SPECS, "pa-voice.json"));
   await copyFile(voicePath, specs[1]);
 }
-// Both stay byte-identical to the RE's output (biome.json leaves them out).
+// Both stay byte-identical to the RE's output (.oxfmtrc.json leaves them out).
 
 // Every sample any PA bank registers.
 const samples = new Set<string>();

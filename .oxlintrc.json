@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "react", "jsx-a11y"],
+  "categories": {
+    "correctness": "error"
+  },
+  "settings": {
+    "react": {
+      "version": "19.0.0"
+    }
+  },
+  "rules": {
+    // Preallocating fixed-length arrays is deliberate (renderer rule 1, sim storage).
+    "unicorn/no-new-array": "off",
+    // The menu is Preact without the React compiler; refs are written in handlers.
+    "react/immutability": "off",
+    // The Win9x menu rebuilds Win32 controls as ARIA-roled divs on purpose.
+    "jsx-a11y/prefer-tag-over-role": "off",
+    // Only DOM elements; W9Button's autoFocus prop is the dialog's default control.
+    "jsx-a11y/no-autofocus": ["error", { "ignoreNonDOM": true }]
+  },
+  "overrides": [
+    {
+      // Tests spell out row 0 of a strided table (`0 * WIDTH + col`) on purpose.
+      "files": ["**/test/**"],
+      "rules": {
+        "oxc/erasing-op": "off"
+      }
+    }
+  ]
+}

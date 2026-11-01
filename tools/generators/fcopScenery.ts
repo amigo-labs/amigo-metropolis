@@ -1084,12 +1084,12 @@ function format(tables: readonly [string, ArenaTable][], reCommit: string): stri
 }
 
 /** The table as the formatter writes it, so a re-run and `--check` agree with lint. */
-function biomeFormat(text: string): string {
-  const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${OUT_TS}`], {
+function repoFormat(text: string): string {
+  const fmt = Bun.spawnSync(["bunx", "oxfmt", `--stdin-filepath=${OUT_TS}`], {
     cwd: REPO_ROOT,
     stdin: new TextEncoder().encode(text),
   });
-  if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+  if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
   return fmt.stdout.toString();
 }
 
@@ -1173,7 +1173,7 @@ function main(): void {
         `${t.turretBases.length} turret bases, ${t.props.length} Props, ${t.quads.length} DCSQuads`,
     );
   }
-  const text = biomeFormat(format(tables, reCommit));
+  const text = repoFormat(format(tables, reCommit));
   if (check) {
     const committed = existsSync(OUT_TS) ? readFileSync(OUT_TS, "utf8") : "";
     // The RE commit in the header is provenance, not content.

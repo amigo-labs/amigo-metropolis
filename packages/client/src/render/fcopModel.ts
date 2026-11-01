@@ -490,7 +490,7 @@ export function chainPatch(
  */
 function defineHit(material: THREE.Material): void {
   const m = material as THREE.Material & { defines?: Record<string, string> };
-  m.defines = { ...(m.defines ?? {}), FCOP_HIT: "" };
+  m.defines = { ...m.defines, FCOP_HIT: "" };
 }
 
 /** The bit-15 pass of a half face: the solid texels are the other pass's. */

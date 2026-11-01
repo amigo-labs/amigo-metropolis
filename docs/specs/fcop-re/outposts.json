@@ -224,7 +224,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [40, 1],
               "script_deducts_30": true
@@ -262,7 +266,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -395,7 +403,11 @@
               ],
               "shuts_spawners": [265, 267],
               "die_orders_0x3d": [169, 265, 267],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [41, 1],
               "script_deducts_30": true
@@ -433,7 +445,11 @@
               ],
               "shuts_spawners": [267, 265],
               "die_orders_0x3d": [169, 267, 265],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -566,7 +582,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [42, 1],
               "script_deducts_30": true
@@ -604,7 +624,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -737,7 +761,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 279, 219, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [43, 1],
               "script_deducts_30": true
@@ -775,7 +803,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 219, 279, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -1091,7 +1123,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [40, 1],
               "script_deducts_30": true
@@ -1129,7 +1165,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -1262,7 +1302,11 @@
               ],
               "shuts_spawners": [265, 267],
               "die_orders_0x3d": [169, 265, 267],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [41, 1],
               "script_deducts_30": true
@@ -1300,7 +1344,11 @@
               ],
               "shuts_spawners": [267, 265],
               "die_orders_0x3d": [169, 267, 265],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -1433,7 +1481,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [42, 1],
               "script_deducts_30": true
@@ -1471,7 +1523,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -1604,7 +1660,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 279, 219, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [43, 1],
               "script_deducts_30": true
@@ -1642,7 +1702,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 219, 279, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -1926,7 +1990,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [40, 1],
               "script_deducts_30": true
@@ -1964,7 +2032,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -2097,7 +2169,11 @@
               ],
               "shuts_spawners": [265, 267],
               "die_orders_0x3d": [169, 265, 267],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [41, 1],
               "script_deducts_30": true
@@ -2135,7 +2211,11 @@
               ],
               "shuts_spawners": [267, 265],
               "die_orders_0x3d": [169, 267, 265],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -2268,7 +2348,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [42, 1],
               "script_deducts_30": true
@@ -2306,7 +2390,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -2439,7 +2527,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 279, 219, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [43, 1],
               "script_deducts_30": true
@@ -2477,7 +2569,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 219, 279, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -2761,7 +2857,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [40, 1],
               "script_deducts_30": true
@@ -2799,7 +2899,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -2932,7 +3036,11 @@
               ],
               "shuts_spawners": [265, 267],
               "die_orders_0x3d": [169, 265, 267],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [41, 1],
               "script_deducts_30": true
@@ -2970,7 +3078,11 @@
               ],
               "shuts_spawners": [267, 265],
               "die_orders_0x3d": [169, 267, 265],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -3103,7 +3215,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [42, 1],
               "script_deducts_30": true
@@ -3141,7 +3257,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -3274,7 +3394,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 279, 219, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [43, 1],
               "script_deducts_30": true
@@ -3312,7 +3436,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 219, 279, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -3596,7 +3724,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [40, 1],
               "script_deducts_30": true
@@ -3634,7 +3766,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -3767,7 +3903,11 @@
               ],
               "shuts_spawners": [265, 267],
               "die_orders_0x3d": [169, 265, 267],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [41, 1],
               "script_deducts_30": true
@@ -3805,7 +3945,11 @@
               ],
               "shuts_spawners": [267, 265],
               "die_orders_0x3d": [169, 267, 265],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -3938,7 +4082,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [42, 1],
               "script_deducts_30": true
@@ -3976,7 +4124,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -4109,7 +4261,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 279, 219, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [43, 1],
               "script_deducts_30": true
@@ -4147,7 +4303,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 219, 279, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -4463,7 +4623,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [40, 1],
               "script_deducts_30": true
@@ -4501,7 +4665,11 @@
               ],
               "shuts_spawners": [113, 119],
               "die_orders_0x3d": [152, 156, 113, 159, 119],
-              "other_effects": [["spawn", 146], ["op14", 147], ["spawn", 49]],
+              "other_effects": [
+                ["spawn", 146],
+                ["op14", 147],
+                ["spawn", 49]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -4634,7 +4802,11 @@
               ],
               "shuts_spawners": [265, 267],
               "die_orders_0x3d": [169, 265, 267],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [41, 1],
               "script_deducts_30": true
@@ -4672,7 +4844,11 @@
               ],
               "shuts_spawners": [267, 265],
               "die_orders_0x3d": [169, 267, 265],
-              "other_effects": [["spawn", 74], ["op14", 168], ["spawn", 43]],
+              "other_effects": [
+                ["spawn", 74],
+                ["op14", 168],
+                ["spawn", 43]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -4805,7 +4981,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [42, 1],
               "script_deducts_30": true
@@ -4843,7 +5023,11 @@
               ],
               "shuts_spawners": [271, 274],
               "die_orders_0x3d": [191, 271, 195, 274, 194],
-              "other_effects": [["spawn", 186], ["op14", 190], ["spawn", 48]],
+              "other_effects": [
+                ["spawn", 186],
+                ["op14", 190],
+                ["spawn", 48]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true
@@ -4976,7 +5160,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 279, 219, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 33,
               "owner_word_written_by_script": [43, 1],
               "script_deducts_30": true
@@ -5014,7 +5202,11 @@
               ],
               "shuts_spawners": [279, 277],
               "die_orders_0x3d": [213, 219, 279, 277, 223],
-              "other_effects": [["spawn", 208], ["op14", 212], ["spawn", 60]],
+              "other_effects": [
+                ["spawn", 208],
+                ["op14", 212],
+                ["spawn", 60]
+              ],
               "claimed_counter_word": 34,
               "owner_word_written_by_script": null,
               "script_deducts_30": true

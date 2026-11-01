@@ -176,7 +176,7 @@ function moduleText(records: MovieRecord[], ffmpeg: string): string {
     `export const FE_MOVIE_ENCODE = ${JSON.stringify({ ffmpeg, args: ENCODE.join(" ") })} as const;`,
   ].join("\n\n");
   const fmt = Bun.spawnSync(
-    [join(ROOT, "node_modules", ".bin", "biome"), "format", `--stdin-file-path=${OUT_TS}`],
+    [join(ROOT, "node_modules", ".bin", "oxfmt"), `--stdin-filepath=${OUT_TS}`],
     { stdin: new TextEncoder().encode(`${header}\n${body}\n`), cwd: ROOT },
   );
   if (fmt.exitCode !== 0) throw new Error(new TextDecoder().decode(fmt.stderr));

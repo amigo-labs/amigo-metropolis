@@ -153,6 +153,6 @@ export const RESULTS_COLUMNS: readonly {
 
 mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(OUT_TS, out);
-const fmt = Bun.spawnSync(["bunx", "biome", "format", "--write", OUT_TS], { cwd: ROOT });
-if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+const fmt = Bun.spawnSync(["bunx", "oxfmt", OUT_TS], { cwd: ROOT });
+if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
 console.log(`wrote ${OUT_TS} (RE @ ${reCommit})`);

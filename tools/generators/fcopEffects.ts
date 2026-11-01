@@ -844,7 +844,7 @@ function main(): void {
   const re = requireReRepo();
   const check = process.argv.includes("--check");
   const out = generate(re);
-  // Written as generated: biome.json leaves this one file's formatting alone, so
+  // Written as generated: .oxfmtrc.json leaves this one file's formatting alone, so
   // a record stays one line and --check compares bytes without a formatter.
   const all = [{ path: OUT_TS, bytes: new TextEncoder().encode(out.ts) }, ...out.files];
   if (check) {
