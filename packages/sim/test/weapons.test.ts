@@ -481,11 +481,17 @@ describe("hitscan damages only the lock (fcop-fidelity.md W2)", () => {
     const { sim, inputs } = duel({ gun: 0 }, 7);
     inputs.players[0].buttons = BTN_GUN;
     step(sim, inputs);
+    let seen = 0;
     for (let i = 0; i < sim.events.count; i++) {
       const o = i * EVENT_STRIDE;
       if (sim.events.data[o] !== EV_SHOT || sim.events.data[o + 2] !== 0) continue;
-      expect(shotPayloadWeaponReach(sim.events.data[o + 3])).toBeCloseTo(7, 1);
+      // From the gun's muzzle (0.25 m to a side of the cockpit, 0.13 m ahead)
+      // to a point scattered half the target's half_h about its reference
+      // point, on the muzzle's side (fcop-fidelity.md T1).
+      expect(shotPayloadWeaponReach(sim.events.data[o + 3])).toBeCloseTo(7, 0);
+      seen++;
     }
+    expect(seen).toBe(1);
   });
 });
 

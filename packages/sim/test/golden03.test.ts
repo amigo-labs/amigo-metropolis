@@ -89,7 +89,12 @@ import { createSim, step } from "../src/sim";
 // 2273 at SIM_VERSION 114: the tanks stand at their cursor's height and turn by
 // their hull's matrix, the cockpits by their aim, so rounds meet them otherwise:
 // the mechs go down 3 times and player 0's tank breaches at 75.8 s.
-const BREACH_TICK_PIN = 2273;
+// 2273 -> none at SIM_VERSION 117: every shot, round and clear line on the
+// original's terrain trace in three dimensions, the X1 off the plates' walls by
+// its footprint's push and firing from its guns' muzzles (fcop-fidelity.md T1):
+// the rings' guns see over the ledges the lattice used to close, so all ten
+// tanks die short of the gates, and the mechs go down 15 times.
+const BREACH_TICK_PIN = -1;
 const BREACH_TEAM_PIN = 0;
 
 describe("golden-03-match beats", () => {
@@ -139,8 +144,8 @@ describe("golden-03-match beats", () => {
     expect(respawns[0]).toBeGreaterThanOrEqual(1);
     expect(respawns[1]).toBeGreaterThanOrEqual(1);
     expect(runnerDeaths).toBeGreaterThanOrEqual(3);
-    // The breach as recorded: player 0's tank at 79.8 s since SIM_VERSION 106
-    // (77.2 s from 94; none from 84; the same side's at 82.8 s from 79).
+    // The breach as recorded: none since SIM_VERSION 117 (player 0's tank at
+    // 75.8 s from 114; 79.8 s from 106; 77.2 s from 94; none from 84).
     expect(breaches).toBe(BREACH_TICK_PIN < 0 ? 0 : 1);
     expect(breachTick).toBe(BREACH_TICK_PIN);
     expect(breachTeam).toBe(BREACH_TICK_PIN < 0 ? -1 : BREACH_TEAM_PIN);

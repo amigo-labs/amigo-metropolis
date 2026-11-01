@@ -12,11 +12,11 @@ import {
   SHOOTER_FRONT_ARC_COS,
   WORLD_WEAPONS,
 } from "../src/balance";
-import { segmentBlocked } from "../src/collision";
 import { EV_HIT, EV_SHOT, EVENT_STRIDE, SHOT_SLOT_LAUNCH } from "../src/events";
 import { createTickInputs } from "../src/inputs";
-import { getMapById, LA_CANTINA_ID, TEST_MAP_ID } from "../src/map";
-import { createSim, type SimState, spawnUnit, step } from "../src/sim";
+import { getMapById, LA_CANTINA_ID, sampleHeight, TEST_MAP_ID } from "../src/map";
+import { createSim, entityRefHeight, type SimState, spawnUnit, step } from "../src/sim";
+import { newTraceScratch, traceLine } from "../src/trace";
 import { PROJ_ROUND } from "../src/weapons";
 
 const map = getMapById(LA_CANTINA_ID);
@@ -33,12 +33,30 @@ function clearSpot(
   y: number,
   dist: number,
 ): [number, number] | undefined {
+  // The shooter's reference point at (x, y), and a body's about a metre up at
+  // the spot: clear by the terrain trace with floors (fcop-fidelity.md T1).
+  let h = 0;
+  for (let id = 0; id < state.ent.high; id++) {
+    if (state.ent.alive[id] && state.ent.posX[id] === x && state.ent.posY[id] === y) {
+      h = state.ent.height[id] + entityRefHeight(state, id);
+      break;
+    }
+  }
   for (let d = dist; d >= dist / 2; d -= 0.5) {
     for (let k = 0; k < 16; k++) {
       const a = (k * Math.PI) / 8;
       const px = x + d * Math.cos(a);
       const py = y + d * Math.sin(a);
-      if (!segmentBlocked(state.map, x, y, px, py)) return [px, py];
+      const ph = sampleHeight(state.map, px, py) + 1;
+      // Clear by a margin: from half a metre under the reference point too, so
+      // a muzzle a little lower than it does not graze a ledge on the way.
+      const st = newTraceScratch();
+      if (
+        traceLine(state.map, st, x, y, h, px, py, ph, 1) === 0 &&
+        traceLine(state.map, st, x, y, h - 0.5, px, py, ph - 0.7, 1) === 0
+      ) {
+        return [px, py];
+      }
     }
   }
   return undefined;
@@ -224,7 +242,13 @@ function offRestDuel() {
       const a = rest + (i * Math.PI) / 8;
       const fx = ent.posX[t] + 6 * Math.cos(a);
       const fy = ent.posY[t] + 6 * Math.sin(a);
-      if (segmentBlocked(state.map, ent.posX[t], ent.posY[t], fx, fy)) continue;
+      const h = ent.height[t] + entityRefHeight(state, t);
+      const fh = sampleHeight(state.map, fx, fy);
+      const st = newTraceScratch();
+      if (traceLine(state.map, st, ent.posX[t], ent.posY[t], h, fx, fy, fh + 1, 1) !== 0) continue;
+      if (traceLine(state.map, st, ent.posX[t], ent.posY[t], h - 0.5, fx, fy, fh + 0.3, 1) !== 0) {
+        continue;
+      }
       const foe = state.avatarId[1];
       ent.hp[foe] = 1e6;
       ent.posX[foe] = fx;

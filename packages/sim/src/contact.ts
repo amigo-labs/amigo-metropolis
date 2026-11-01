@@ -551,6 +551,20 @@ export function bodiesContact(state: SimState, a: number, b: number, bumpable = 
  * The mech's legs' `radius_68` and box-0 centre height at legs frame `frame`
  * (`walk_select_frame`, player_walk.c 118-130), metres.
  */
+const halfParts: Collider[] = Array.from({ length: MAX_PARTS }, collider);
+
+/**
+ * A body's `half_h` (the instance's +0x6e, its model block's +0x46: box 0's
+ * +0x0e of its current frame, metres) -- the horizontal half extent
+ * `player_fire_direct` scatters a hit by (0x00459747). NaN for a body with no
+ * imported model (the caller's stand-in then).
+ */
+export function bodyHalfH(state: SimState, id: number): number {
+  if (state.map.shapes.tables.length === 0) return Number.NaN;
+  if (bodyColliders(state, id, halfParts) < 0) return Number.NaN;
+  return word(halfParts[0], 0, HALF_H);
+}
+
 export function legsRadius(frame: number): number {
   const f = frame >= 0 && frame < X1_LEGS_SHAPE.frames ? frame : 0;
   return X1_LEGS_SHAPE.boxes[f * SHAPE_WORDS + RADIUS];
@@ -588,10 +602,12 @@ export function legsRefHeight(frame: number): number {
 // arm (bit 0, a model without boxes) never runs there.
 
 /** Words a player's contact model holds in SimState.avatarShape (box halfwords). */
-export const SHAPE_STATE_WORDS = 8;
+export const SHAPE_STATE_WORDS = 9;
 /** Its box's centre x, y, z and half x, y, z; then the block's +0x44 and +0x46. */
 const S_HALF_Y = 6;
 const S_WORD_E = 7;
+/** The footprint's common height (`ride->footprint[i][1]`), raw. */
+export const S_FOOT_Y = 8;
 
 /**
  * `player_transform_shape` (0x00441cf0) at transform progress `progress`
@@ -626,6 +642,9 @@ export function shapeTransform(state: SimState, p: number, frame: number, progre
   s[b + 5] = longZ;
   s[b + S_HALF_Y] = bandCentre;
   s[b + S_WORD_E] = radius2d >> 4;
+  // The footprint's height, 0xae falling to 0x14 (0x00441d48..0x00441dac: the
+  // negate before the last doubling, so the shift floors a negative number).
+  s[b + S_FOOT_Y] = (-Math.imul(154, progress) >> 16) + 0xae;
 }
 
 /**

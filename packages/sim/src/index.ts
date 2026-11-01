@@ -19,6 +19,7 @@ export * from "./sandbox";
 export * from "./sim";
 export * from "./simMath";
 export * from "./stats";
+export * from "./trace";
 export * from "./units";
 export * from "./version";
 export * from "./warden";

@@ -965,6 +965,30 @@ rows F*; `docs/specs/ui.md` §3). Menu-only: no golden moves.
       `po_*`: all 27 re-encoded to AV1 by `gen:movies` ("Play the original's
       movies where the original does")
 
+### Wave 8 — The terrain trace
+
+Every line the original tests against the arena goes through
+`terrain_trace_segment` (0x00454790), in 3D through its floor and wall plates;
+Metropolis tests them on the walker's 2D wall lattice of layer 0, so shots
+across ledges are stopped and shots through decks are not. Plan:
+`docs/plans/terrain-trace-2026-11.md`.
+
+- [x] 8.1 The ledger row (T1) for the trace and its call sites
+- [x] 8.2 `gen:trace`: the Cptc grid and the Ctil `Sect` plates into each map
+      (`trace`), the plate tables generated; `--check`
+- [x] 8.3 `trace.ts`: the trace and its cell test transcribed in int32, bit for
+      bit against the decompiled trace's rays on the six PA containers (24,000
+      committed; 1.59 million locally over nine containers)
+- [x] 8.4 The X1's direct shot and rounds from the gun's model point 0
+      (`gen:x1muzzles`, the pose checked against the cockpit's 3DBB), the gun by
+      the ammo's low bit, the Heavy slot's recoil (v117)
+- [x] 8.5 The line tests onto the trace with the original's `hit_floors`, the
+      direct shot's scatter with them (SIM_VERSION 117, goldens)
+- [x] 8.6 The walker's head trace and the X1's footprint push off the plates'
+      walls (`player_ground_probe` / `player_ground_push`; v117)
+- [x] 8.7 The client's camera trace and lock beam on the same trace, the
+      see-through flag off the plate's material
+
 ## Backlog (post-v1, do not start)
 
 More arenas · map editor · rollback netcode upgrade · 2v2 ·

@@ -1,27 +1,38 @@
 // The chase camera's line-of-sight test against the arena (render/camera.ts
-// ChaseTrace), standing in for the original's `terrain_trace_segment` with floors
-// (RE src/game/frame/view_place.c view_trace).
+// ChaseTrace) and the lock beam's end: the original's `terrain_trace_segment`
+// with floors (RE src/game/frame/view_place.c view_trace, draw.c
+// hud_draw_lock_beam), the sim's own transcription of it over the map's plates
+// (@metropolis/sim traceLine; fcop-fidelity.md T1).
 //
-// A render-side query over the map's static heightfield and decks, the same data
-// the terrain meshes are built from — it reads no sim state. The original lets
-// a plate whose material byte carries bit 7 be seen through (`view_trace`
-// 0x00445df0, RE M3-GD): a first hit on one, from the eye, is retraced from the
-// anchor to it, and a second such hit is clear. Which of the sim's surfaces are
-// such plates is gen:viewterrain's (render/viewTerrain.generated.ts): la-cantina
-// has 249 deck cells of them (its catwalks), the other arenas none the trace
-// meets (proving-ground's and bug-hunt's four are wall plates, which the sim's
-// map does not carry as surfaces).
+// A render-side query over the map's static plates -- it reads no sim state, and
+// it carries its own trace scratch, never the sim's. The original lets a plate
+// whose material byte carries bit 7 be seen through (`view_trace` 0x00445df0,
+// RE M3-GD): the trace's result word carries that byte in bits 8..15, so bit 15
+// is the flag. A first hit on such a plate, from the eye, is retraced from the
+// anchor to it, and a second such hit is clear.
+//
+// A map with no plates (the test maps, the sandbox) samples its heightfield and
+// decks instead, with nothing see-through.
 //
 // Allocation-free: the closure is built once per arena, outside the frame loop.
 
-import { type MapData, sampleHeight, sampleLayerHeight } from "@metropolis/sim";
+import {
+  type MapData,
+  newTraceScratch,
+  sampleHeight,
+  sampleLayerHeight,
+  TRACE_PASSTHROUGH,
+  traceHit,
+  traceLine,
+} from "@metropolis/sim";
 import type { ChaseTrace } from "./camera";
-import { VIEW_TERRAIN } from "./viewTerrain.generated";
 
 /** Samples per metre along the segment. A cell is a metre; four catches a kerb. */
 const SAMPLES_PER_M = 4;
 /** Slack under the surface before a sample counts as inside it, m. */
 const SKIN = 0.05;
+/** The largest fraction a stopped line answers (1 is clear). */
+const BLOCKED_MAX = 1 - 1e-6;
 
 /**
  * The first blocked point on a segment over `map`'s ground and decks, as the
@@ -37,31 +48,43 @@ export type TerrainHit = (
 ) => number;
 
 /**
- * The last blocked trace's hit (makeTerrainHit): the first sample inside a
- * surface, three frame (x, height, sim y), and whether that surface is
- * see-through there. Written by every blocked call; read straight after it.
+ * The last blocked trace's hit (makeTerrainHit): where the line stopped,
+ * three frame (x, height, sim y), and whether the plate it met is see-through.
+ * Written by every blocked call; read straight after it.
  */
 export const terrainHitAt = { x: 0, h: 0, y: 0, seeThrough: false };
 
-/**
- * Per surface (0 the ground, k + 1 deck k), a byte per cell: 1 where the surface
- * is a see-through plate (render/viewTerrain.generated.ts); null without any.
- */
-function seeThroughOf(map: MapData): Uint8Array[] | null {
-  const t = VIEW_TERRAIN[map.id];
-  if (!t || t.seeThrough.every((cells) => cells.length === 0)) return null;
-  const cells = map.size - 1;
-  return t.seeThrough.map((list) => {
-    const b = new Uint8Array(cells * cells);
-    for (const i of list) b[i] = 1;
-    return b;
-  });
+export function makeTerrainHit(map: MapData): TerrainHit {
+  if (map.trace !== null) return platesHit(map);
+  return sampledHit(map);
 }
 
-export function makeTerrainHit(map: MapData): TerrainHit {
+/** makeTerrainHit over the original's plates: the trace with floors, its own scratch. */
+function platesHit(map: MapData): TerrainHit {
+  const scratch = newTraceScratch();
+  return (ax, ah, ay, ex, eh, ey) => {
+    const r = traceLine(map, scratch, ax, ay, ah, ex, ey, eh, 1);
+    if (r === 0) return 1;
+    terrainHitAt.x = traceHit.x;
+    terrainHitAt.h = traceHit.h;
+    terrainHitAt.y = traceHit.y;
+    terrainHitAt.seeThrough = (r & TRACE_PASSTHROUGH) !== 0;
+    const dx = ex - ax;
+    const dh = eh - ah;
+    const dy = ey - ay;
+    const len2 = dx * dx + dh * dh + dy * dy;
+    if (!(len2 > 0)) return 0;
+    // Where it stopped along the segment. A floor reports its piece's upper end
+    // (trace.c), which can be the segment's own end: a stopped line still
+    // answers less than 1.
+    const t = ((traceHit.x - ax) * dx + (traceHit.h - ah) * dh + (traceHit.y - ay) * dy) / len2;
+    return t < 0 ? 0 : t < BLOCKED_MAX ? t : BLOCKED_MAX;
+  };
+}
+
+/** makeTerrainHit by samples of a map with no plates: its heightfield and decks. */
+function sampledHit(map: MapData): TerrainHit {
   const decks = map.layerHeights.length;
-  const see = seeThroughOf(map);
-  const cells = map.size - 1;
   const size = map.size;
   const cell = map.cellSize;
   const max = size - 1;
@@ -73,20 +96,12 @@ export function makeTerrainHit(map: MapData): TerrainHit {
     j = j < 0 ? 0 : j > max ? max : j;
     return map.layerMask[k][j * size + i] === 1;
   };
-  /** Records a blocked sample at (x, h, y) on surface `k` (0 ground, k + 1 deck k). */
-  const blocked = (x: number, h: number, y: number, k: number): void => {
+  /** Records a blocked sample at (x, h, y). */
+  const blocked = (x: number, h: number, y: number): void => {
     terrainHitAt.x = x;
     terrainHitAt.h = h;
     terrainHitAt.y = y;
-    let seeThrough = false;
-    if (see !== null && k < see.length) {
-      let i = Math.floor(x / cell);
-      let j = Math.floor(y / cell);
-      i = i < 0 ? 0 : i >= cells ? cells - 1 : i;
-      j = j < 0 ? 0 : j >= cells ? cells - 1 : j;
-      seeThrough = see[k][j * cells + i] === 1;
-    }
-    terrainHitAt.seeThrough = seeThrough;
+    terrainHitAt.seeThrough = false;
   };
   return (ax, ah, ay, ex, eh, ey) => {
     const dx = ex - ax;
@@ -103,7 +118,7 @@ export function makeTerrainHit(map: MapData): TerrainHit {
       const h = ah + dh * t;
       const y = ay + dy * t;
       if (h < sampleHeight(map, x, y) - SKIN) {
-        blocked(x, h, y, 0);
+        blocked(x, h, y);
         return (s - 1) / n;
       }
       // A deck blocks a segment that passes through it between two samples.
@@ -114,7 +129,7 @@ export function makeTerrainHit(map: MapData): TerrainHit {
         // A sample landing exactly on the deck counts as the crossing (else
         // that sample and the next both read 0 and the deck is missed).
         if ((d0 < 0 && d1 >= 0) || (d0 > 0 && d1 <= 0)) {
-          blocked(x, h, y, k + 1);
+          blocked(x, h, y);
           return (s - 1) / n;
         }
       }

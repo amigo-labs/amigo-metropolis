@@ -91,6 +91,7 @@ import {
 } from "./fcopLogic";
 import type { ModelsArtifact } from "./fcopModels";
 import type { FcopRules } from "./fcopRules";
+import { readTrace } from "./fcopTrace";
 import { type Lattice, openKerbs, readGlbTriangles, TerrainMesh } from "./kerbs";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -2294,9 +2295,10 @@ function terrainOnly(raw: MapJson): MapJson {
   // from render/arenaScenery.generated.ts, and nothing read them.
   // `coarse` is rebuilt below too, and dropped here so it is always emitted in
   // the same place whatever the map on disk carries.
-  const { props, spawnGuards, coarse, ...kept } = raw as MapJson & { props?: unknown };
+  const { props, spawnGuards, coarse, trace, ...kept } = raw as MapJson & { props?: unknown };
   void props;
   void coarse;
+  void trace;
   void spawnGuards;
   // A fresh stage-1 terrain still carries convert.ts's hand outpost spots but no
   // outposts, which the loader refuses; every feature list is rebuilt below.
@@ -2965,6 +2967,9 @@ function buildArena(arena: FcopArena): { json: MapJson; stats: EnrichStats; grap
     // The original's coarse ground envelope (gen:coarse, fcopCoarse.ts): what
     // the K-9 Drone keeps its clearance over.
     coarse: coarseOf(arena),
+    // The original's terrain plates (gen:trace, fcopTrace.ts): what every line
+    // test of the sim traces against (trace.ts).
+    trace: traceOf(arena),
   };
 
   // Load it back through the real validator before returning: an arena that only
@@ -3002,6 +3007,21 @@ function coarseOf(arena: FcopArena): MapJson["coarse"] {
     rows: f.rows,
     stride: f.stride,
     field: f.field,
+  };
+}
+
+/** The arena's committed terrain plates (tools/generators/fcop/<mission>-trace.json), as the map carries them. */
+function traceOf(arena: FcopArena): MapJson["trace"] {
+  const f = readTrace(arena);
+  if (!f) return undefined;
+  // The original's (x = 0, z = 0) into the sim's frame as every actor goes (sx, sz).
+  return {
+    originX: sx(0),
+    originY: sz(0),
+    width: f.width,
+    height: f.height,
+    cells: f.cells.flat(),
+    sections: f.sections,
   };
 }
 
