@@ -1,8 +1,24 @@
 # The original's terrain trace (2026-11-01)
 
-> Status: plan, nothing implemented yet. Owner's rule: only the original counts
-> (`docs/specs/fcop-fidelity.md`, PLAN.md Phase 14). Found by the owner's question
-> "do shots at other heights work cleanly?" — they do not.
+> Status: **done** (2026-11-01, SIM_VERSION 117; ledger row T1, PLAN.md Phase 14
+> wave 8). Owner's rule: only the original counts (`docs/specs/fcop-fidelity.md`,
+> PLAN.md Phase 14). Found by the owner's question "do shots at other heights work
+> cleanly?" — they did not.
+>
+> What the work found beyond the plan:
+> - **8.6 is the footprint, not a hover probe.** `player_ground_probe` /
+>   `player_ground_push` are the X1's wall contact in both forms: four corner
+>   traces and four edge traces each tick, a push per wall kind. On an arena with
+>   plates no wall stops the move any more; the X1 is pushed off the plates'
+>   walls (terrainTrace.test.ts holds it to never crossing one).
+> - **The RE's bone chain disagrees with the data.** Its transcription of
+>   `player_bone_chain` with `math_matrix_from_angles_b` misses the cockpit's own
+>   3DBB box by about 450 raw units on Mp's records; FC:MIT's decode reproduces
+>   every frame's box to 1.63, so `gen:x1muzzles` uses it and the RE has a
+>   target.
+> - **The balance moved, as the original's.** The rings' guns see over ledges
+>   the lattice closed: a lone Runner breaches no arena, the d8 Sky Captain
+>   resolves 7 of 20 seed runs in fifteen minutes (19 before).
 
 ## The gap
 
