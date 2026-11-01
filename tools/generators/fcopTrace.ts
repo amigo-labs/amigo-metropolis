@@ -123,7 +123,7 @@ export function readTrace(a: FcopArena): TraceFile | null {
   return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as TraceFile) : null;
 }
 
-/** JSON as biome formats it: two-space indent, each grid row of ids on one line. */
+/** JSON in the layout the map files keep: two-space indent, each grid row of ids on one line. */
 function serialize(f: TraceFile): string {
   const rows = f.cells.map((r) => `    [${r.join(", ")}]`).join(",\n");
   const text = JSON.stringify({ ...f, cells: "@CELLS@" }, null, 2);
@@ -197,12 +197,12 @@ function tablesSource(reRepo: string): string {
 }
 
 /** The output as the formatter writes it, so a re-run and `--check` agree with lint. */
-function biomeFormat(text: string, path: string): string {
-  const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${path}`], {
+function repoFormat(text: string, path: string): string {
+  const fmt = Bun.spawnSync(["bunx", "oxfmt", `--stdin-filepath=${path}`], {
     cwd: REPO_ROOT,
     stdin: new TextEncoder().encode(text),
   });
-  if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+  if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
   return fmt.stdout.toString();
 }
 
@@ -211,7 +211,7 @@ function main(): void {
   const which = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "all";
   const check = process.argv.includes("--check");
   let bad = 0;
-  const tables = biomeFormat(tablesSource(reRepo), TABLES_PATH);
+  const tables = repoFormat(tablesSource(reRepo), TABLES_PATH);
   if (check) {
     const same = existsSync(TABLES_PATH) && readFileSync(TABLES_PATH, "utf8") === tables;
     console.log(`plate tables: ${same ? "reproduce the committed file" : "PROBLEM differ"}`);

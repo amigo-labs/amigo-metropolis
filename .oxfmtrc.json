@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "useTabs": false,
+  "tabWidth": 2,
+  "printWidth": 100,
+  "singleQuote": false,
+  "jsxSingleQuote": false,
+  "quoteProps": "as-needed",
+  "trailingComma": "all",
+  "semi": true,
+  "arrowParens": "always",
+  "bracketSameLine": false,
+  "bracketSpacing": true,
+  "sortImports": { "newlinesBetween": false },
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "**/*.md",
+    "**/*.yml",
+    "**/*.html",
+    "docs/specs/fcop-re/pa-audio.json",
+    "docs/specs/fcop-re/pa-voice.json",
+    "packages/client/public/fx/particles.json",
+    "packages/sim/src/sinTable.ts",
+    "packages/client/src/effects/fcopEffects.generated.ts",
+    "packages/sim/maps/*.json",
+    "packages/sim/test/goldens/*.hashes.json",
+    "docs/renders/fcop-viz/*.json",
+    "tools/generators/units/raw/fcop-x1/*.json"
+  ]
+}

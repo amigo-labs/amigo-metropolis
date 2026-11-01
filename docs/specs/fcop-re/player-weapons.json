@@ -105,7 +105,12 @@
         "lock_scatter_m": 0.062,
         "refire_note": "gap 0: fires every frame the button is held (frame-bound, 30-37.5/s)"
       },
-      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+      "models": [
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0]
+      ]
     },
     "0x01": {
       "code": 1,
@@ -206,7 +211,12 @@
         "note": "damage only to the locked target (msg op 0x0e) unless the line hits terrain; with no lock no damage, except block B with blast>0 which area-damages at the line end",
         "refire_note": "gap 0: fires every frame the button is held (frame-bound, 30-37.5/s)"
       },
-      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+      "models": [
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0]
+      ]
     },
     "0x02": {
       "code": 2,
@@ -307,7 +317,12 @@
         "note": "damage delivered by sustained fire nodes (per-node damage = this value); node rate/lifetime not established",
         "refire_note": "gap 0: fires every frame the button is held (frame-bound, 30-37.5/s)"
       },
-      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+      "models": [
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0]
+      ]
     },
     "0x03": {
       "code": 3,
@@ -410,7 +425,12 @@
         "lock_scatter_m": "target half_h/2",
         "refire_note": "18-unit cooldown: every 2nd frame at 30 fps (15/s), every 3rd at 37.5 fps"
       },
-      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+      "models": [
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0]
+      ]
     },
     "0x05": {
       "code": 5,
@@ -511,7 +531,12 @@
         "sphere_reach_w10": 2048,
         "note": "toggle; ammo spent every round_gap while up (spend_period = round_gap); per-contact damage semantics not established"
       },
-      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+      "models": [
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0]
+      ]
     },
     "0x10": {
       "code": 16,
@@ -618,7 +643,12 @@
           "blast_radius_m": 0.0
         }
       },
-      "models": [["Cobj", 43], ["NULL", 0], ["NULL", 0], ["Cobj", 43]]
+      "models": [
+        ["Cobj", 43],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["Cobj", 43]
+      ]
     },
     "0x12": {
       "code": 18,
@@ -725,7 +755,12 @@
           "note": "aimed sustained effect; damage application rate not established"
         }
       },
-      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+      "models": [
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0]
+      ]
     },
     "0x13": {
       "code": 19,
@@ -832,7 +867,12 @@
         },
         "burst_note": "8 rounds on 8 consecutive frames (round_gap -18), then 450-7*18=324 units = 1.08 s"
       },
-      "models": [["Cobj", 44], ["NULL", 0], ["NULL", 0], ["Cobj", 45]]
+      "models": [
+        ["Cobj", 44],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["Cobj", 45]
+      ]
     },
     "0x14": {
       "code": 20,
@@ -945,7 +985,12 @@
           "blast_radius_m": 2.0
         }
       },
-      "models": [["Cobj", 46], ["NULL", 0], ["NULL", 0], ["Cobj", 47]]
+      "models": [
+        ["Cobj", 46],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["Cobj", 47]
+      ]
     },
     "0x15": {
       "code": 21,
@@ -1051,7 +1096,12 @@
           "blast_radius_m": 0.0
         }
       },
-      "models": [["Cobj", 48], ["NULL", 0], ["NULL", 0], ["Cobj", 48]]
+      "models": [
+        ["Cobj", 48],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["Cobj", 48]
+      ]
     },
     "0x20": {
       "code": 32,
@@ -1156,7 +1206,12 @@
           "blast_radius_m": 4.0
         }
       },
-      "models": [["Cobj", 49], ["NULL", 0], ["NULL", 0], ["Cobj", 49]]
+      "models": [
+        ["Cobj", 49],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["Cobj", 49]
+      ]
     },
     "0x21": {
       "code": 33,
@@ -1269,7 +1324,12 @@
           "blast_radius_m": 6.0
         }
       },
-      "models": [["Cobj", 46], ["NULL", 0], ["NULL", 0], ["Cobj", 47]]
+      "models": [
+        ["Cobj", 46],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["Cobj", 47]
+      ]
     },
     "0x22": {
       "code": 34,
@@ -1376,7 +1436,12 @@
           "sprung_fuse_s": 1.0
         }
       },
-      "models": [["Cobj", 50], ["NULL", 0], ["NULL", 0], ["Cobj", 51]]
+      "models": [
+        ["Cobj", 50],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["Cobj", 51]
+      ]
     },
     "0x23": {
       "code": 35,
@@ -1479,7 +1544,12 @@
           "note": "self-centred; how damage is applied over time not established"
         }
       },
-      "models": [["NULL", 0], ["NULL", 0], ["NULL", 0], ["NULL", 0]]
+      "models": [
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["NULL", 0]
+      ]
     },
     "0x24": {
       "code": 36,
@@ -1593,7 +1663,12 @@
           "fuse_s": [3.003, 4.457]
         }
       },
-      "models": [["Cobj", 52], ["NULL", 0], ["NULL", 0], ["Cobj", 52]]
+      "models": [
+        ["Cobj", 52],
+        ["NULL", 0],
+        ["NULL", 0],
+        ["Cobj", 52]
+      ]
     }
   },
   "_lock": "lock range 0x18000 wu = 12 m horizontal; acquire cone cos 0xf9ee (+-12.5 deg), hold cone cos 0xe804 (+-25 deg); auto-acquire when none; hitscan damages only the lock",

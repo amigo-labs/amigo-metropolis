@@ -128,12 +128,12 @@ function render(entries: readonly [string, ViewTerrain][]): string {
 }
 
 /** The output as the formatter writes it, so a re-run and `--check` agree with lint. */
-function biomeFormat(text: string, path: string): string {
-  const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${path}`], {
+function repoFormat(text: string, path: string): string {
+  const fmt = Bun.spawnSync(["bunx", "oxfmt", `--stdin-filepath=${path}`], {
     cwd: REPO_ROOT,
     stdin: new TextEncoder().encode(text),
   });
-  if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+  if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
   return fmt.stdout.toString();
 }
 
@@ -147,7 +147,7 @@ function main(): void {
     entries.push([a.mapId, t]);
     console.log(`${a.mapId}: world [${t.world.join(", ")}], ${t.cactLoad.length} type-11 records`);
   }
-  const text = biomeFormat(render(entries), VIEW_TERRAIN_OUT);
+  const text = repoFormat(render(entries), VIEW_TERRAIN_OUT);
   if (check) {
     const same = existsSync(VIEW_TERRAIN_OUT) && readFileSync(VIEW_TERRAIN_OUT, "utf8") === text;
     console.log(

@@ -82,6 +82,7 @@ export function W9Window(props: {
   const caption = props.caption ?? d.caption ?? "";
   return (
     <div class="w9-modal" onPointerDown={stop} onPointerUp={stop} onPointerMove={stop}>
+      {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- a dialog takes its own keys */}
       <div
         class="w9 w9-window"
         role="dialog"
@@ -134,7 +135,7 @@ export function W9Button(props: {
       class={props.isDefault ? "w9-btn is-default" : "w9-btn"}
       style={pos(props.rect)}
       disabled={props.disabled}
-      // biome-ignore lint/a11y/noAutofocus: a Win32 dialog focuses its first control
+      // oxlint-disable-next-line jsx-a11y/no-autofocus -- a Win32 dialog focuses its first control
       autoFocus={props.autoFocus}
       onClick={props.onClick}
     >

@@ -916,8 +916,8 @@ async function main(): Promise<void> {
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, `${JSON.stringify(models, null, 2)}\n`);
     // The repo's formatter has the last word on layout, so a re-run is a no-op.
-    const fmt = Bun.spawnSync(["bunx", "biome", "format", "--write", out], { cwd: REPO_ROOT });
-    if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+    const fmt = Bun.spawnSync(["bunx", "oxfmt", out], { cwd: REPO_ROOT });
+    if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
     console.log(`wrote ${out}: Dreadnought hull ${models.dreadnought.hull}, 4 guns`);
   }
 }

@@ -1013,7 +1013,7 @@ function extract(arena: FcopArena, reRepo: string, commit: string): void {
   const out = join(REPO_ROOT, "tools", "generators", "fcop", logicFile(arena));
   mkdirSync(dirname(out), { recursive: true });
   // Two-space indent so the artifact satisfies the repo formatter as-is and
-  // needs no biome.json override (unlike the minified map JSONs).
+  // needs no .oxfmtrc.json ignore entry (unlike the minified map JSONs).
   writeFileSync(out, `${JSON.stringify(logic, null, 2)}\n`);
 
   console.log(`wrote ${out}`);

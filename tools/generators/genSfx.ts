@@ -327,8 +327,8 @@ ${arenas.join("\n")}
 `;
 await Bun.write(OUT_TS, generated);
 // Committed as the formatter writes it, so a re-run is a no-op diff.
-const fmt = Bun.spawnSync(["bunx", "biome", "format", "--write", OUT_TS], { cwd: ROOT });
-if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+const fmt = Bun.spawnSync(["bunx", "oxfmt", OUT_TS], { cwd: ROOT });
+if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
 console.log(
   `gen:sfx: ${FCOP_ARENAS.length} arenas, ${files.length} sample files, ${VOICE_LINES} voice lines -> ${OUT_TS}`,
 );

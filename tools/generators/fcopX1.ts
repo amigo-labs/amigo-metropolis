@@ -245,7 +245,7 @@ function faceMap(part: Part, set: FaceSet, file: string): Float32Array {
   const out = new Float32Array(part.count);
   const tris = part.count / 3;
   let found = 0;
-  for (let t = 0; t < tris; ) {
+  for (let t = 0; t < tris;) {
     let span = 0;
     let face = -1;
     for (const n of [2, 1]) {
@@ -831,9 +831,9 @@ export async function buildX1(): Promise<X1Build> {
   return {
     glb,
     bin: new Uint8Array(data.buffer),
-    ts: biomeFormat(ts, X1_OUT_TS),
-    simTs: biomeFormat(simTs, X1_OUT_SIM_TS),
-    shapesTs: biomeFormat(shapesTs(channels), X1_OUT_SHAPES_TS),
+    ts: repoFormat(ts, X1_OUT_TS),
+    simTs: repoFormat(simTs, X1_OUT_SIM_TS),
+    shapesTs: repoFormat(shapesTs(channels), X1_OUT_SHAPES_TS),
   };
 }
 
@@ -913,12 +913,12 @@ function readBoxes(blob: Uint8Array): { perFrame: number; boxes: number[][] } {
 }
 
 /** The table as the formatter writes it, so a re-run and `--check` agree with lint. */
-function biomeFormat(text: string, path: string): string {
-  const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${path}`], {
+function repoFormat(text: string, path: string): string {
+  const fmt = Bun.spawnSync(["bunx", "oxfmt", `--stdin-filepath=${path}`], {
     cwd: REPO_ROOT,
     stdin: new TextEncoder().encode(text),
   });
-  if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+  if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
   return fmt.stdout.toString();
 }
 

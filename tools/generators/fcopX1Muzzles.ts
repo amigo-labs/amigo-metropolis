@@ -285,18 +285,18 @@ function build(reRepo: string): string {
 }
 
 /** The output as the formatter writes it, so a re-run and `--check` agree with lint. */
-function biomeFormat(text: string, path: string): string {
-  const fmt = Bun.spawnSync(["bunx", "biome", "format", `--stdin-file-path=${path}`], {
+function repoFormat(text: string, path: string): string {
+  const fmt = Bun.spawnSync(["bunx", "oxfmt", `--stdin-filepath=${path}`], {
     cwd: REPO_ROOT,
     stdin: new TextEncoder().encode(text),
   });
-  if (fmt.exitCode !== 0) throw new Error(`biome format failed: ${fmt.stderr.toString()}`);
+  if (fmt.exitCode !== 0) throw new Error(`oxfmt failed: ${fmt.stderr.toString()}`);
   return fmt.stdout.toString();
 }
 
 function main(): void {
   const reRepo = requireReRepo();
-  const text = biomeFormat(build(reRepo), OUT);
+  const text = repoFormat(build(reRepo), OUT);
   if (process.argv.includes("--check")) {
     const same = existsSync(OUT) && readFileSync(OUT, "utf8") === text;
     console.log(`x1 muzzles: ${same ? "reproduce the committed table" : "PROBLEM differ"}`);
