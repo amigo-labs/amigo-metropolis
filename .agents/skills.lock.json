@@ -1,0 +1,10 @@
+{
+  "$comment": "Written by .agents/sync.mjs. Do not edit.",
+  "source": "https://github.com/amigo-labs/skills.git",
+  "ref": "main",
+  "commit": "23bf90f8c31d802c64b0f9c2fa6a6238ac84ed0a",
+  "files": {
+    ".agents/sync.mjs": "bb7db4330b1ec67cd2adcf67650c66afeee446989c3636049f9ca07b9e957a70"
+  },
+  "blocks": {}
+}

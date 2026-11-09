@@ -108,7 +108,7 @@ describe("collision agrees with the terrain the player sees", () => {
       // proving-ground and bug-hunt each keep exactly one, at (148,122): a 2.00 m
       // shaft one cell wide, in the original's own terrain. Pinned rather than
       // fixed — bending the arena to erase a single authored hole is the kind of
-      // edit CLAUDE.md's FCOP rules exist to prevent — but pinned as a COUNT, so a
+      // edit AGENTS.md's FCOP rules exist to prevent — but pinned as a COUNT, so a
       // regression that opens a hundred of them fails here.
       const KNOWN: Record<string, number> = {
         "la-cantina": 0,

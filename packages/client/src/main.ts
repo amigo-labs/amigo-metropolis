@@ -1,6 +1,6 @@
 // Sandbox entry: a fixed 30 Hz sim under a variable-rate render loop on the
 // chosen arena, driving the ONE local player. Frame loop contract
-// (CLAUDE.md renderer rules): ZERO allocations — all scratch objects live at
+// (AGENTS.md renderer rules): ZERO allocations — all scratch objects live at
 // module scope, snapshots rotate between two preallocated buffers, and entity
 // rendering reads sim state ONLY via writeSnapshot(). (The 1 Hz debug HUD reads
 // sim fields directly — it is host-side debug UI, not part of the renderer.)
@@ -1773,7 +1773,7 @@ function entityPose(id: number, out: Float32Array): boolean {
 
 /**
  * Module-scope, passed by reference to every pump call site: a fresh closure per
- * tick would allocate in the frame loop (CLAUDE.md renderer rule 1).
+ * tick would allocate in the frame loop (AGENTS.md renderer rule 1).
  */
 function resolveEventPosition(
   type: number,

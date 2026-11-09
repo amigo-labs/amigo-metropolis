@@ -450,7 +450,7 @@ describe("pools", () => {
   });
 
   test("the per-frame paths create no objects, arrays or closures", () => {
-    // A structural guard (CLAUDE.md renderer rule 1): the bodies of every
+    // A structural guard (AGENTS.md renderer rule 1): the bodies of every
     // update, draw, tick, put and strip function in the effect drawers.
     const dir = join(import.meta.dir, "..", "src", "render", "fx");
     const files = [...readdirSync(dir).map((f) => join(dir, f)), join(dir, "..", "fx.ts")];

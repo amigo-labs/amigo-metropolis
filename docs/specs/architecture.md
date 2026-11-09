@@ -25,7 +25,7 @@ tools/        # replay recorder/verifier CLI, balance sheets
 ## 2. Simulation (`packages/sim`)
 
 - **Fixed tick: 30 Hz.** All gameplay time in ticks (`const TICK_HZ = 30`).
-- Deterministic: see CLAUDE.md hard rules. `simMath.ts` provides LUT sin/cos
+- Deterministic: see AGENTS.md hard rules. `simMath.ts` provides LUT sin/cos
   (4096-entry table, generated at build time and **committed** as constants, not
   computed at runtime), vector helpers, mulberry32.
 - **State**: Structure-of-Arrays in preallocated typed arrays, dense entity ids
@@ -105,7 +105,7 @@ Flat `Float32Array`, stride 10 per entity:
 - One `InstancedMesh` per archetype; instance matrices written in place.
   Greybox archetypes until Phase 6 (see assets.md).
 - Frame loop: accumulate real time → run 0..n sim steps → write snapshot →
-  interpolate → render. Zero allocations (CLAUDE.md rules).
+  interpolate → render. Zero allocations (AGENTS.md rules).
 - **Input**: keyboard and gamepad through the original's bindings, sampled per
   tick into the button word and pushed into the input queue (`input.spec.md`
   §5). No mouse, no touch in a match.

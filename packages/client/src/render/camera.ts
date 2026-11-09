@@ -26,7 +26,7 @@
 // (x, y, z) is (position[2], position[1], position[0]).
 //
 // Client-local render state (camera.spec §2): nothing here reads or writes the
-// sim, and nothing allocates per frame (CLAUDE.md renderer rule 1).
+// sim, and nothing allocates per frame (AGENTS.md renderer rule 1).
 
 import {
   CAMERA_CAPTION,

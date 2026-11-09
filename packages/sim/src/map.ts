@@ -104,7 +104,7 @@ export interface MapWeapon {
   readonly turnSpeed: number;
   /**
    * cos(fov/2), PRECOMPUTED at authoring time so the sim never calls trig
-   * (CLAUDE.md determinism rule 1). -1 = omnidirectional, i.e. no restriction —
+   * (AGENTS.md determinism rule 1). -1 = omnidirectional, i.e. no restriction —
    * which is what every original Mp shooter carries (fov 4096 = 360°).
    */
   readonly fovCos: number;

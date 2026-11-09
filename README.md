@@ -4,7 +4,7 @@ Browser-based arena strategy-action game — a homage to the *Precinct
 Assault* mode of Future Cop: L.A.P.D. (1998). One deterministic lockstep
 simulation drives solo vs. AI and online 1v1. Title: **Metropolis**.
 
-Read `CLAUDE.md` (hard rules) and `docs/specs/` (source of truth) before
+Read `AGENTS.md` (hard rules) and `docs/specs/` (source of truth) before
 touching code. Work follows `PLAN.md` phase by phase.
 
 ## Quickstart

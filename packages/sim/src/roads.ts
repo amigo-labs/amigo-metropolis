@@ -58,7 +58,7 @@ const STUCK_TICKS = 30;
 
 /**
  * Segment length, built from the allowed arithmetic only: `+ - * /` and
- * `Math.sqrt` (CLAUDE.md determinism rule 2, which is what makes `Math.sqrt`
+ * `Math.sqrt` (AGENTS.md determinism rule 2, which is what makes `Math.sqrt`
  * usable — it is IEEE-exact). `Math.hypot` would be the obvious spelling and
  * determinismGuard.test.ts rejects it for every file in this package, along with
  * the rest of the engine-dependent `Math.*` surface.

@@ -146,7 +146,7 @@ describe("turret reach on the imported arenas", () => {
         emplacements += 1;
         for (let s = 0; s < SAMPLES; s++) {
           // Directions off the unit circle. Test-side only — Math.cos/sin never
-          // enter the sim (CLAUDE.md determinism rule 1).
+          // enter the sim (AGENTS.md determinism rule 1).
           const a = (s / SAMPLES) * Math.PI * 2;
           for (const [r, bucket] of [
             [8, 0],

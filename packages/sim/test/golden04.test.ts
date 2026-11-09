@@ -2,7 +2,7 @@
 // hash-sequence check in golden.test.ts, assert what the AI match plays out.
 // If a rule or AI change shifts the match off these beats, this fails and the
 // golden needs regenerating WITH new pins (and justification in the commit
-// message — CLAUDE.md hard rule 6).
+// message — AGENTS.md hard rule 6).
 //
 // Since district-01 left the game (wave 2, 2026-10-14) it runs on urban-jungle
 // against the captain at difficulty 3 (level 2): its ring of eight counts 16, so

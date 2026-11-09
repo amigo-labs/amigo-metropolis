@@ -1,6 +1,6 @@
 # PLAN.md — amigo-metropolis
 
-Read `CLAUDE.md` and all of `docs/specs/` first. Work strictly phase by phase;
+Read `AGENTS.md` and all of `docs/specs/` first. Work strictly phase by phase;
 each phase ends with its Definition of Done (DoD) verified and committed.
 Balance numbers come from `packages/sim/src/balance.ts`, seeded from rules.md.
 

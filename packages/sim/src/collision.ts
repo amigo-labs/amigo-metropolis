@@ -4,7 +4,7 @@
 // symmetric ±y twin. Both helpers slot into the existing axis-separated
 // block-and-slide steppers (sim.ts avatar movement, units.ts).
 //
-// Determinism contract (CLAUDE.md hard rules): only + - * /, floor, integer
+// Determinism contract (AGENTS.md hard rules): only + - * /, floor, integer
 // compares and array reads — bit-exact on every engine. Every mover in the
 // sim travels well under one cell per tick (max ~0.6 m vs cellSize ≥ 1), so
 // an axis move crosses AT MOST one grid line; each helper checks exactly

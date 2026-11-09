@@ -56,7 +56,7 @@ attached/downloaded `pin-*-pin.json` + `pin-*-view.png` files.
      - `packages/sim/maps/<mapId>.json` (gameplay truth)
      - `docs/renders/fcop-viz/<mapId>/<mapId>-top.png` (layout truth when
        FCOP-derived) — compare it against the pin's `top.png`, not the fly view
-     - CLAUDE.md FCOP mesh-alignment rules (`meshMap.ts`, logic centre not grid
+     - AGENTS.md FCOP mesh-alignment rules (`meshMap.ts`, logic centre not grid
        centre)
 
 4. **Report briefly**
@@ -112,4 +112,4 @@ human one.
 - Handle v1 pins too: they have no `entities`, `shots`, `console` or
   `reproduction`. Fall back to `view.png` + `nearby` and say what you could not
   check.
-- Keep this file and `.grok/skills/verify-pin/SKILL.md` in sync.
+- Edit this skill in `.agents/skills/verify-pin/` only; `node .agents/sync.mjs --mirror` copies it to `.claude/skills/` and `.grok/skills/`.

@@ -11,7 +11,7 @@
 // Browsers block audio until a user gesture, so nothing plays until unlock()
 // runs inside one (self-armed on the first pointer/key/touch).
 //
-// Frame-loop discipline (CLAUDE.md renderer rule 1): a sound needs a fresh
+// Frame-loop discipline (AGENTS.md renderer rule 1): a sound needs a fresh
 // AudioBufferSourceNode — WebAudio has no other way — and that is the one
 // allocation per play. Every channel's gain pair is built once at unlock, and
 // the bookkeeping is typed arrays.
