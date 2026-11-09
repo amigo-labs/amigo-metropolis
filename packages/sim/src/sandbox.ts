@@ -10,7 +10,7 @@
 // intact:
 //
 //   * No system reads any state written only by these functions, so the golden
-//     replays hash identically (CLAUDE.md rule 6). If a golden ever moves after
+//     replays hash identically (AGENTS.md rule 6). If a golden ever moves after
 //     a change in this file, something in the tick started reading sandbox
 //     state and that commit is wrong.
 //   * The arithmetic still obeys rule 1/2 (simMath LUTs, no transcendentals)
@@ -433,7 +433,7 @@ function maxHpFor(state: SimState, archetype: number, slot: number): number {
 // fractional negative team slid past the neutral check below and became team 0.
 // floor(-0.5) is -1, which is what "negative means neutral" is supposed to do.
 // It also keeps this file on the same helper as the other 37 floor sites in the
-// sim, and inside CLAUDE.md rule 2's written allowlist.
+// sim, and inside AGENTS.md rule 2's written allowlist.
 function clampTeam(team: number): number {
   if (!Number.isFinite(team)) return 0;
   const t = Math.floor(team);

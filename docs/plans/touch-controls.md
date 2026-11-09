@@ -154,7 +154,7 @@ existing single-player boot path.
   `pointercancel`.
 - Scroll/zoom: `touch-action:none` + `preventDefault` on
   `touchstart`/`gesturestart`/`contextmenu` + viewport `user-scalable=no`.
-- Allocation-free `sample()` (CLAUDE.md renderer rule): module scratch only.
+- Allocation-free `sample()` (AGENTS.md renderer rule): module scratch only.
 - INTERACT bit stays set while held; the sim reads its rising edge (capture,
   claim and purchase are all one press since SIM_VERSION 51).
 - DOM/three sources can't run under `bun test` (same as gamepad/keyboard); keep

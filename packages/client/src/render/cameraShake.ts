@@ -27,7 +27,7 @@
 // lockstep sim's stream would desync the peers (fcop-fidelity.md E19, A18).
 //
 // Client-local render state, read only from the snapshots and the events;
-// nothing allocates per frame (CLAUDE.md renderer rule 1).
+// nothing allocates per frame (AGENTS.md renderer rule 1).
 
 import type { FxShake } from "../effects/records";
 import { type ChasePose, WU_PER_M } from "./camera";

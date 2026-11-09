@@ -7,7 +7,7 @@
 //
 // One tinted copy of the atlas per colour, built once on first use (boot-time
 // work, not frame work). Drawing a number goes digit by digit from the integer,
-// so a HUD refresh never builds a string (CLAUDE.md renderer rule 1).
+// so a HUD refresh never builds a string (AGENTS.md renderer rule 1).
 
 import { FONT3_GLYPHS, TEXT_COLOURS } from "../fcopPresentation.generated";
 

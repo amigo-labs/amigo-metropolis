@@ -12,7 +12,7 @@
 // values it shows changes (blinks change on the 300 Hz frame clock's bits 6 and
 // 7, so at most every 64 ticks). Raw DOM, no allocation per frame: every colour
 // string is built once below, numbers are drawn digit by digit (docs/specs/ui.md
-// §1, CLAUDE.md renderer rule 1).
+// §1, AGENTS.md renderer rule 1).
 //
 // It reads the snapshots and nothing else (renderer rule 4).
 

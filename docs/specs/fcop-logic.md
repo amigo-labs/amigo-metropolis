@@ -216,7 +216,7 @@ pathfinding in v1". The original data opens these options; none is adopted yet:
    the air-unit orbit in `moveAirUnit()`.
 
 Any adoption is a **deliberate** deviation from the v1 "dumb units" rule and must
-be raised as such, per `CLAUDE.md` (spec is source of truth).
+be raised as such, per `AGENTS.md` (spec is source of truth).
 
 ### 6.1 Adoption status (2026-07-25)
 

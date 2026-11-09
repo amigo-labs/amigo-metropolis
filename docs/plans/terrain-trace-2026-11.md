@@ -129,7 +129,7 @@ the RE's addresses as comments, in world units on the original's axes:
   `mul_shr16` (bits 16..47 of a signed 64-bit product) is done exactly with 16-bit
   halves, no `BigInt` in the tick. `recip6`'s `0x80000000 / q` is `Math.floor` of
   the double quotient, which is exact for operands below 2^32. No transcendental
-  `Math.*` (CLAUDE.md determinism rule 1); none is needed.
+  `Math.*` (AGENTS.md determinism rule 1); none is needed.
 - **Retail's four quirks are kept**, as `trace.c` keeps them: the displaced
   shape-1 floor plane, the stale running best distance in the wall pick, the
   `y_at_b` seed from `hit_floors`, the zero-length first piece on a cell
@@ -174,7 +174,7 @@ trace (8.5) does not wait for it.
 ### 8.5 The call sites on the trace (SIM_VERSION bump, goldens)
 
 One commit, one SIM_VERSION, golden replays regenerated in the same commit with
-the justification in its message (CLAUDE.md determinism rule 6). Every one of
+the justification in its message (AGENTS.md determinism rule 6). Every one of
 the first ten rows of the table goes onto `terrainTraceSegment` with the
 original's `hit_floors`, its segment and its use of the hit point:
 

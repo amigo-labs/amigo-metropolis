@@ -27,7 +27,7 @@ match, so determinism is decision No. 1.
 
 ### Decision (shipped): pure-TS float64 over a restricted, IEEE-exact op subset
 `packages/sim` is a **pure-TypeScript** simulation — no Rust, no WASM, no
-fixed-point (CLAUDE.md: *"TypeScript only … The sim is portable pure TS."*).
+fixed-point (AGENTS.md: *"TypeScript only … The sim is portable pure TS."*).
 Determinism is guaranteed not by integer state but by **restricting which float
 operations the sim may use** to exactly the ones IEEE-754 pins:
 

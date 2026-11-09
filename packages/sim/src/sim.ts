@@ -4463,7 +4463,7 @@ function applyDamage(
 
 /**
  * Shortest signed angular difference from `from` to `to`, in (-PI, PI].
- * Plain arithmetic only — no trig, no Math.atan2 (CLAUDE.md rule 1).
+ * Plain arithmetic only — no trig, no Math.atan2 (AGENTS.md rule 1).
  */
 function angleDelta(from: number, to: number): number {
   let d = to - from;
@@ -7912,7 +7912,7 @@ export function writeMatchSnapshot(state: SimState, out: Float32Array): void {
       out[matchSlotOffset(owner) + MATCH_SLOT_OUTPOSTS] += 1;
     }
   }
-  // Dense id order, like every other sim iteration (CLAUDE.md hard rule 5).
+  // Dense id order, like every other sim iteration (AGENTS.md hard rule 5).
   for (let id = 0; id < ent.high; id++) {
     if (!ent.alive[id]) continue;
     live += 1;

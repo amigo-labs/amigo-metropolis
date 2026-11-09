@@ -2,7 +2,7 @@
 // is re-simulated and its full hash sequence compared against the committed
 // .hashes.json. Any sim change that alters these hashes must regenerate the
 // goldens in the same commit (bun tools/determinism/src/cli.ts record ...) and
-// justify it in the commit message — see CLAUDE.md hard rule 6.
+// justify it in the commit message — see AGENTS.md hard rule 6.
 
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";

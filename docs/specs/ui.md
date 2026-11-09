@@ -38,7 +38,7 @@ of the controls screen would drift.
 
 **Forbidden, and why:**
 
-- **No Preact inside the frame loop.** CLAUDE.md renderer rule 1 is a hard
+- **No Preact inside the frame loop.** AGENTS.md renderer rule 1 is a hard
   budget; a scheduler that batches and diffs cannot promise it.
 - **No react-three-fiber.** It would own the scene graph and allocate per
   frame, against renderer rules 1-3.
@@ -72,7 +72,7 @@ Two buffers, both written once per tick:
 Both are pure reads of sim state into caller-owned buffers. They never mutate
 and are therefore invisible to `hashState` — adding a field to either cannot
 move a golden hash. Adding a field to *sim state* can, and that is a different
-change with a different rule (CLAUDE.md hard rule 6).
+change with a different rule (AGENTS.md hard rule 6).
 
 ### The debug text HUD is a separate, load-bearing thing
 

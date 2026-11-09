@@ -1,4 +1,4 @@
-// ALL gameplay constants live here (CLAUDE.md workflow rule) — never inline
+// ALL gameplay constants live here (AGENTS.md workflow rule) — never inline
 // numbers in systems. Values are seeded from docs/specs/rules.md and are
 // placeholders until playtesting tunes them.
 
@@ -165,7 +165,7 @@ export const TRANSFORM_LOCK_TICKS = 41;
 //
 // So the sim applies one tick as n = 1.25 steps of that closed form: the
 // retention per tick is (1 - d)^1.25 = (1 - d) * sqrt(sqrt(1 - d)), which needs
-// only Math.sqrt (IEEE-exact, CLAUDE.md rule 1). Steady speeds, time constants
+// only Math.sqrt (IEEE-exact, AGENTS.md rule 1). Steady speeds, time constants
 // and coast half-lives are the original's exactly; only the within-tick path is
 // sampled at 30 Hz. Per-step accelerations that are not drag-coupled (gravity,
 // the jump lifts) are multiplied by the steps per tick, and the position

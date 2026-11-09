@@ -13,7 +13,7 @@
 //
 //   bun run gen:paprops [all | <mapId> | <Mission>] [--re-repo <path>]
 //
-// Committing original assets is allowed (CLAUDE.md "Assets"; CREDITS.md lists
+// Committing original assets is allowed (AGENTS.md "Assets"; CREDITS.md lists
 // them). Authoring-time only.
 
 import { copyFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";

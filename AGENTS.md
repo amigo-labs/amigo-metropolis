@@ -1,0 +1,143 @@
+# amigo-metropolis
+
+Browser-based arena strategy-action game. Spiritual successor to the *Precinct Assault*
+mode of Future Cop: L.A.P.D. (1998).
+Codename: **Metropolis**. Display title: **Metropolis**.
+
+Solo vs. AI and online 1v1 — all driven by one deterministic lockstep
+simulation. (Couch splitscreen shipped in Phase 5 and was later removed by
+owner decision; the multi-view renderer infrastructure remains for post-v1 2v2.)
+
+
+## Agent skills
+
+`verify-pin` (and any other skill of this repository) lives in `.agents/skills/` — read by Codex, Gemini CLI, Copilot, Cursor and other agents — and is mirrored to `.claude/skills/` (Claude Code) and `.grok/skills/` (Grok). Edit it in `.agents/skills/` only, then run `node .agents/sync.mjs --mirror`; `node .agents/sync.mjs --check` fails when a mirror is stale. Claude Code reads this file through `CLAUDE.md`, which only imports it. The sync script comes from [amigo-labs/skills](https://github.com/amigo-labs/skills), which also holds the shared skills (spec workflow, qa) should this repository adopt them (`.agents/skills.json`).
+
+## Stack
+
+- **TypeScript only.** No Rust/WASM in this repo. The sim is portable pure TS.
+- Bun (runtime, tests, workspaces), oxlint (lint) + oxfmt (format), TypeScript strict.
+- `packages/sim` — pure deterministic simulation. No DOM, no Three, no I/O.
+- `packages/client` — Three.js (WebGL2) renderer, input, interpolation, PWA shell.
+- `packages/server` — Cloudflare Worker + Durable Object lockstep relay.
+- Specs live in `docs/specs/`. Read them before implementing. They are the source
+  of truth; if code and spec disagree, raise it — don't silently pick one.
+
+## Commands
+
+- `bun install` — install workspace deps
+- `bun test` — run all tests (sim tests must pass before any commit)
+- `bun run lint` — oxlint + `oxfmt --check`
+- `bun run format` — oxfmt (write)
+- `bun run dev` — client dev server
+- `bun run replay:verify` — run golden replays against current sim (Phase 0+)
+
+## Hard rules — determinism (packages/sim)
+
+Violating any of these causes multiplayer desyncs. They are non-negotiable.
+
+1. **No transcendental `Math.*` in sim code.** Banned: `sin, cos, tan, atan2, asin,
+   acos, pow, exp, log, sqrt` variants that are engine-dependent — of these, plain
+   `Math.sqrt` IS allowed (IEEE-exact), the rest are NOT. Use `simMath.ts`
+   (lookup-table sin/cos, polynomial atan2). Prefer direction vectors + normalize
+   over angles wherever possible.
+2. **Allowed arithmetic:** `+ - * /`, `Math.sqrt`, `Math.floor/ceil/abs/min/max/sign`,
+   integer bitwise ops. These are IEEE-754-exact and identical across V8/JSC/SpiderMonkey.
+3. **PRNG:** seeded mulberry32 in sim state. Never `Math.random()` in sim code.
+4. **Time:** the sim knows only its tick counter. Never `Date.now()`,
+   `performance.now()`, or wall-clock anything inside `packages/sim`.
+5. **Iteration order:** entity storage is an array indexed by dense entity id;
+   iterate in id order. Never iterate `Map`/`Set`/object keys where insertion
+   order could differ between peers.
+6. **Sim hash:** every tick produces a 32-bit FNV-1a hash over canonical state.
+   Golden replay tests assert hash sequences. Any sim change that alters hashes
+   requires regenerating goldens in the same commit, with justification in the
+   commit message.
+7. Sim is synchronous and single-threaded. No `async` inside the tick.
+
+## Hard rules — renderer (packages/client)
+
+1. **Zero allocations in the frame loop.** No `new Vector3()`, no array literals,
+   no closures created per frame. Preallocate scratch objects at module scope.
+2. `matrixAutoUpdate = false` for everything; write instance matrices directly.
+3. One `InstancedMesh` per entity archetype (tank, plane, projectile, turret…).
+   The X1-Alpha is one too: its skeletons are posed in the vertex shader from a
+   bone table (`render/avatarRig.ts`). The declared exceptions are parts that
+   have transforms of their own in the original — a turret's base and gun, the
+   Dreadnought's guns (`render/arenaUnits.ts`) — still without an `Object3D`
+   tree. Any further split needs the same justification in writing
+   (`assets.md` §4).
+4. The renderer reads sim state ONLY via the snapshot interface
+   (`docs/specs/architecture.md#snapshot`). Never reach into sim internals.
+5. Renderer must stay swappable: no sim logic in client, no Three types in sim.
+6. **Two UI worlds, never mixed** (`docs/specs/ui.md`): the menu renders with
+   Preact and may allocate; the HUD and in-match overlays are raw DOM,
+   write-on-change, and bound by rule 1. No Preact, no react-three-fiber and no
+   canvas-owning UI framework anywhere in the frame loop.
+
+## Assets (see docs/specs/assets.md)
+
+- No license restriction on committed assets — any source is fine, including
+  purchased packs and CC0/CC-BY assets.
+- The original Future Cop: L.A.P.D. may be used directly: as reference, as an
+  editing base, or rebuilt from scratch. Modified originals are fine.
+- EA / Future Cop names, logos, and designs (incl. the X1-Alpha silhouette) may
+  be used.
+- Note third-party asset sources in `CREDITS.md` for provenance where known.
+
+## Hard rules — FCOP maps (placement & alignment)
+
+FCOP-derived arenas (la-cantina, urban-jungle, …) have a fixed source hierarchy.
+Violating it reintroduces “left-shifted” lanes/turrets and empty pads.
+
+1. **Visual truth (layout):** `docs/renders/fcop-viz/<map>/<map>-top.png` and the
+   data behind it (`prep_viz.py` → `viz_data_<map>.json` from RE
+   `actors.json` + `nets.json`). Same **0-based grid** as the sim map JSON
+   (`x` = col, `y` = row/z). If sim features and that top-down disagree, the
+   **viz/FCOP extract wins** — do not invent hand-BFS or A* lanes to green tests.
+2. **Gameplay truth (runtime):** `packages/sim/maps/<map>.json` — heightfield,
+   walls, spawns, bases, lanes, turret/outpost spots. Deterministic; lockstep
+   reads only this. Derive it *from* FCOP/viz data; never freehand over the art.
+3. **Mesh alignment (`meshMap.ts`):** place the `.glb` with
+   `position.xz = logicCentre − glbBBoxCentre` (logic = bbox of map features /
+   FCOP content). **Forbidden:** centre on `worldExtent/2` (grid centre) — the
+   apron is asymmetric (~16 cells off on Mp). **Y:** keep authored heights
+   (match heightfield; never force min-Y → 0). Same rule as
+   `docs/renders/fcop-viz/build_map.py` (three.js: no Blender Y-flip).
+4. **Do not bake spawns/lanes/turrets into the terrain `.glb` as sim authority.**
+   Optional empties/helpers for art are fine; sim must keep JSON. Dual truth
+   (GLB nodes + JSON) desyncs. Pads/buildings *in* the mesh are art only.
+5. **Collision follows roads:** if FCOP Cnet / viz roads are correct and walls
+   block them, open wall bits / soften heights along the road — do not bend the
+   lane polyline away from the art to satisfy wall tests.
+6. **Debug overlays:** frame on the **logic centre**, not the padded square
+   grid (padding on +X makes content look “shifted left”).
+7. **Import helpers:** `docs/renders/fcop-viz/prep_viz.py`,
+   `tools/generators/importLaCantinaFromFcopViz.ts` (pattern for other maps).
+
+## Workflow
+
+- Follow `PLAN.md` phase by phase. Check off tasks as completed.
+- Atomic commits, imperative mood, one logical change each.
+- Each phase has a Definition of Done; do not start the next phase before it's met.
+- New gameplay constants go in `packages/sim/src/balance.ts` — never inline.
+
+### Visual co-debug (verification pins)
+
+For placement/mesh/texture issues in a running client:
+
+1. `bun run dev` + `bun run pin:serve`
+2. Menu **Fly** (or `?play=1&cam=fly`) → aim center crosshair → **P** → type the
+   problem → Enter (`Shift+P` also leaves the sim paused)
+3. Agent: `/verify-pin` reads `docs/verification/pins/latest/` — `view.png`,
+   `top.png` and `pin.json` (notes, nearby features, live entities, console tail)
+
+The agent verifies its own fix rather than asking you to fly back:
+`bun run pin:drive reshoot <id|latest>` restores arena/seed/tick and the recorded
+camera pose, then writes a linked pin to compare against. `bun run pin:drive`
+plus `bun run pin:cmd <verb>` lets it fly, spawn and pin unattended.
+
+Pins are debug-only and must never reach the sim tick path. If a pin change moves
+a golden hash, something leaked into the sim — that commit is wrong (hard rule 6).
+
+See `docs/verification/pins/README.md`.

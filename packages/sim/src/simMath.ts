@@ -2,7 +2,7 @@
 // ONLY sanctioned source of trigonometry and randomness inside packages/sim.
 // Allowed primitives: + - * /, Math.sqrt, Math.floor/ceil/abs/min/max/sign,
 // Math.imul and integer bitwise ops — all IEEE-754-exact across JS engines.
-// See CLAUDE.md "Hard rules — determinism".
+// See AGENTS.md "Hard rules — determinism".
 
 import { SIN_TABLE, SIN_TABLE_MASK, SIN_TABLE_SIZE } from "./sinTable";
 

@@ -1,4 +1,4 @@
-// Static guard for the CLAUDE.md determinism hard rules: scans every source
+// Static guard for the AGENTS.md determinism hard rules: scans every source
 // file in packages/sim/src for banned constructs. This cannot prove
 // determinism (the golden replays do that) but catches the common violations
 // at the cheapest possible point.

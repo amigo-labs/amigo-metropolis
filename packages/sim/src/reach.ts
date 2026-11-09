@@ -101,7 +101,7 @@ export function reachableFrom(
   const ext = worldExtent(map);
   const size = map.size;
   // One node per (cell, layer). Layer count is fixed per map, so the key stays a
-  // dense integer and iteration order stays id order (CLAUDE.md hard rule 5).
+  // dense integer and iteration order stays id order (AGENTS.md hard rule 5).
   const layerCount = map.layerHeights.length + 1;
   const nodeKey = (i: number, j: number, layer: number): number =>
     (i * size + j) * layerCount + layer;

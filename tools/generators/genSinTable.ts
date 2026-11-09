@@ -20,7 +20,7 @@ const lines: string[] = [];
 lines.push("// GENERATED FILE — do not edit by hand. Regenerate with:");
 lines.push("//   bun tools/generators/genSinTable.ts");
 lines.push("// Committed constants so all peers share bit-identical values;");
-lines.push("// see docs/specs/architecture.md §2 and CLAUDE.md determinism rules.");
+lines.push("// see docs/specs/architecture.md §2 and AGENTS.md determinism rules.");
 lines.push(`export const SIN_TABLE_BITS = ${BITS};`);
 lines.push(`export const SIN_TABLE_SIZE = ${SIZE};`);
 lines.push(`export const SIN_TABLE_MASK = ${SIZE - 1};`);

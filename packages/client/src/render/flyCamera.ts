@@ -6,7 +6,7 @@
 // a flying debug camera cannot desync anyone. Pure math over the caller's
 // PerspectiveCamera; the only three import is for the camera/vector types.
 //
-// Zero allocations in the frame loop (CLAUDE.md renderer rules): all scratch
+// Zero allocations in the frame loop (AGENTS.md renderer rules): all scratch
 // lives at module scope; updateFlyCamera mutates the camera in place.
 //
 // Controls (browser-standard for noclip debug cams):
